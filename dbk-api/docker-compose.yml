@@ -1,0 +1,26 @@
+services:
+  dbk-api:
+    build: .
+    container_name: dbk-api
+    environment:
+      - DBK_ALBUM_DIR=/album
+      - DBK_CACHE_DIR=/cache
+      - DBK_CACHE_FORMAT=webp
+      - DBK_CACHE_MAX_EDGE=1920
+      - DBK_THUMB_MAX_EDGE=512
+    volumes:
+      - /mnt/picstorage/picstorage-album/Digi Bilderkalender Ana:/album:ro
+      - ./cache:/cache
+      - /sys:/sys:ro
+      - /proc:/proc:ro
+
+    ports:
+      - "8090:8090"
+    restart: unless-stopped
+
+    networks:
+      - dbk-net
+
+networks:
+  dbk-net:
+    external: true

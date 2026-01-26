@@ -1,0 +1,16 @@
+services:
+  dbk-web:
+    image: nginx:alpine
+    container_name: dbk-web
+    ports:
+      - "8080:80"
+    volumes:
+      - ./web-dist:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    restart: unless-stopped
+    networks:
+      - dbk-net
+
+networks:
+  dbk-net:
+    external: true
