@@ -1,86 +1,202 @@
 <!doctype html>
-<html>
+<html lang="de">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>DBK</title>
+  <meta name="viewport" content="width=device-width, height=device-height, initial-scale=1, user-scalable=no" />
+  <title>Digitaler Bilderkalender</title>
+
   <style>
-    html,body{margin:0;height:100%;background:#000;overflow:hidden}
-    #img{width:100%;height:100%;object-fit:contain;touch-action:manipulation}
-    #hud{position:fixed;left:12px;top:10px;color:#fff;font:14px system-ui;opacity:.75}
-    #dbg{position:fixed;left:12px;bottom:10px;right:12px;color:#fff;font:12px ui-monospace,monospace;opacity:.75;white-space:pre-wrap}
+    :root {
+      --bg: #0b0f1a;
+      --glass: rgba(10,16,28,.45);
+      --glass-border: rgba(255,255,255,.10);
+      --text: rgba(255,255,255,.92);
+      --muted: rgba(255,255,255,.78);
+    }
+
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      background: var(--bg);
+      overflow: hidden;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif;
+      color: var(--text);
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      touch-action: pan-y;
+    }
+
+    #app {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      background: var(--bg);
+    }
+
+    .layer {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      background: var(--bg);
+    }
+
+    .img {
+      position: absolute;
+      inset: 0;
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scale(1.02);
+      opacity: 0;
+      transition: opacity 900ms ease;
+      will-change: opacity, transform;
+      pointer-events: none;
+    }
+
+    .img.show { opacity: 1; }
+
+    /* subtle premium zoom (Ken Burns light) */
+    .img.kenburns {
+      animation: kenburns 18s ease-in-out forwards;
+    }
+    @keyframes kenburns {
+      0%   { transform: scale(1.02) translate3d(0,0,0); }
+      100% { transform: scale(1.08) translate3d(-1.5%, -1%, 0); }
+    }
+
+    .nowbar {
+      position: absolute;
+      left: 24px;
+      right: 24px;
+      bottom: 20px;
+      padding: 14px 18px;
+      border-radius: 18px;
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      backdrop-filter: blur(10px);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.45);
+    }
+
+    .left { display: flex; flex-direction: column; gap: 2px; }
+    .time { font-size: 34px; font-weight: 750; line-height: 1.1; letter-spacing: .2px; }
+    .date { font-size: 16px; opacity: .85; }
+    .right { font-size: 14px; opacity: .8; text-align: right; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .pill {
+      position: absolute;
+      left: 16px;
+      top: 16px;
+      padding: 8px 10px;
+      border-radius: 14px;
+      background: rgba(0,0,0,.35);
+      border: 1px solid rgba(255,255,255,.10);
+      font-size: 12px;
+      opacity: .82;
+      backdrop-filter: blur(8px);
+      max-width: 60vw;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .touchhint {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      padding: 8px 10px;
+      border-radius: 14px;
+      background: rgba(0,0,0,.35);
+      border: 1px solid rgba(255,255,255,.10);
+      font-size: 12px;
+      opacity: .75;
+      backdrop-filter: blur(8px);
+    }
+
+    .overlay {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      background: radial-gradient(900px 700px at 30% 20%, rgba(60,80,255,.15), transparent),
+                  rgba(0,0,0,.55);
+      z-index: 20;
+    }
+
+    .card {
+      width: min(720px, 92vw);
+      border-radius: 22px;
+      padding: 22px;
+      background: rgba(15, 22, 40, 0.72);
+      border: 1px solid rgba(255,255,255,.12);
+      backdrop-filter: blur(12px);
+      box-shadow: 0 20px 60px rgba(0,0,0,.45);
+    }
+
+    .title { font-size: 22px; font-weight: 800; margin-bottom: 8px; }
+    .text { font-size: 16px; opacity: .9; margin-bottom: 10px; }
+    .hint { font-size: 13px; opacity: .75; margin-top: 6px; }
+
+    .debug {
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      padding: 12px;
+      border-radius: 14px;
+      background: rgba(0,0,0,.55);
+      border: 1px solid rgba(255,255,255,.12);
+      font-size: 12px;
+      line-height: 1.45;
+      backdrop-filter: blur(8px);
+      z-index: 30;
+    }
+
+    .secretTapZone {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 120px;
+      height: 120px;
+      z-index: 40;
+      background: transparent;
+    }
   </style>
 </head>
+
 <body>
-  <div id="hud">DBK booting…</div>
-  <div id="dbg"></div>
-  <img id="img" />
-  <script>
-    const API = "";
-    const INTERVAL_MS = 10000;
+  <div id="app">
+    <div class="layer">
+      <img id="imgA" class="img" alt="" />
+      <img id="imgB" class="img" alt="" />
+      <div id="filePill" class="pill" style="display:none"></div>
+      <div class="touchhint">Wischen: zurück/vor • 5× oben rechts: Debug</div>
+    </div>
 
-    const hud = document.getElementById("hud");
-    const dbg = document.getElementById("dbg");
-    const img = document.getElementById("img");
+    <div class="nowbar">
+      <div class="left">
+        <div id="time" class="time">--:--</div>
+        <div id="date" class="date">---</div>
+      </div>
+      <div id="subtitle" class="right">Digitaler Bilderkalender</div>
+    </div>
 
-    function log(s){ dbg.textContent = (dbg.textContent + s + "\n").slice(-2000); }
+    <div id="overlay" class="overlay" style="display:none">
+      <div class="card">
+        <div id="overlayTitle" class="title">Loading…</div>
+        <div id="overlayText" class="text">Bitte kurz warten…</div>
+        <div class="hint">Tipp: 5× oben rechts tippen → Debug</div>
+      </div>
+    </div>
 
-    let list = [];
-    let idx = 0;
+    <div id="debug" class="debug" style="display:none"></div>
+    <div id="secretTapZone" class="secretTapZone"></div>
+  </div>
 
-    async function loadList(){
-      hud.textContent = "DBK: loading list…";
-      try{
-        const r = await fetch(`${API}/api/images`, {cache:"no-store"});
-        log(`GET /api/images -> ${r.status}`);
-        if(!r.ok) throw new Error(`images status ${r.status}`);
-        list = await r.json();
-        log(`images count=${list.length}`);
-        if(!list.length) hud.textContent = "DBK: no images";
-        idx = 0;
-      }catch(e){
-        hud.textContent = "DBK: ERROR loading list";
-        log(String(e));
-      }
-    }
-
-    function show(i){
-      if(!list.length) return;
-      idx = (i + list.length) % list.length;
-      const id = list[idx].id;
-      const url = `${API}/api/image/${id}?t=${Date.now()}`;
-      hud.textContent = `DBK ${idx+1}/${list.length}`;
-      log(`img src=${url}`);
-      img.src = url;
-    }
-
-    function next(){ show(idx+1); }
-    function prev(){ show(idx-1); }
-
-    img.onerror = () => { hud.textContent = "DBK: IMAGE LOAD ERROR"; log("img.onerror"); };
-
-    document.body.addEventListener("click", (e)=>{
-      const x = e.clientX || 0;
-      if (x > window.innerWidth/2) next(); else prev();
-    });
-
-    let sx = null;
-    document.body.addEventListener("touchstart",(e)=>{ sx = e.touches[0].clientX; }, {passive:true});
-    document.body.addEventListener("touchend",(e)=>{
-      if(sx==null) return;
-      const ex = e.changedTouches[0].clientX;
-      const dx = ex - sx;
-      sx = null;
-      if(Math.abs(dx) > 60) (dx < 0 ? next() : prev());
-    }, {passive:true});
-
-    (async ()=>{
-      log("DBK debug start");
-      await loadList();
-      show(0);
-      setInterval(next, INTERVAL_MS);
-      setInterval(loadList, 60000);
-    })();
-  </script>
+  <script type="module" src="/app/main.js"></script>
 </body>
 </html>
