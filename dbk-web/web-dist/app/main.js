@@ -9,8 +9,8 @@ import { setLastError, state } from "./state.js";
 async function boot() {
   try {
     setOverlay(true, "Checking API…", "Ich prüfe, ob der Bilderdienst erreichbar ist…");
-    const health = await fetchJson("/api/health");
-    els.subtitle.textContent = health?.album_dir ? `Album: ${health.album_dir}` : "Digitaler Bilderkalender";
+    await fetchJson("/api/health");
+    els.subtitle.textContent = "Digitaler Bilderkalender";
 
     setOverlay(true, "Loading images…", "Ich lade die Bilderliste…");
     const list = await fetchJson("/api/images");

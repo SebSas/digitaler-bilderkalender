@@ -46,13 +46,8 @@ export function showImage(obj) {
   front.alt = obj.name || "";
   front.classList.add("show", "kenburns");
 
-  els.filePill.style.display = "block";
-  els.filePill.textContent = obj.name || "";
-
-  clearTimeout(window.__pillTimer);
-  window.__pillTimer = setTimeout(() => {
-    els.filePill.style.display = "none";
-  }, 2500);
+  els.filePill.style.display = "none";
+  els.filePill.textContent = "";
 
   state.showingA = !state.showingA;
 
