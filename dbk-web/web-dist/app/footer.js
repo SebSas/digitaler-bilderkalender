@@ -118,7 +118,8 @@ function renderCollapsedWeather() {
   const temp = weatherData.current?.temp_c;
   const condition = weatherData.current?.condition_text || "";
   const icon = iconMarkup(weatherData.current?.icon);
-  els.weatherPillLine1.innerHTML = `${icon}<span class="weather-temp-inline">${temp}°C</span>`;
+  if (els.weatherPillIcon) els.weatherPillIcon.innerHTML = icon;
+  els.weatherPillLine1.textContent = `${temp}°C`;
   els.weatherPillLine2.textContent = formatCollapsedCondition(condition);
   pill.style.display = "flex";
 }

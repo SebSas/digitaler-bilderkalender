@@ -11,6 +11,7 @@ export const els = {
   holidayLabel: document.getElementById("holidayLabel"),
   locationLabel: document.getElementById("locationLabel"),
   weatherPill: document.getElementById("weatherPill"),
+  weatherPillIcon: document.getElementById("weatherPillIcon"),
   weatherPillLine1: document.getElementById("weatherPillLine1"),
   weatherPillLine2: document.getElementById("weatherPillLine2"),
   calendarHeader: document.getElementById("calendarHeader"),

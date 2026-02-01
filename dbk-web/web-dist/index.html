@@ -124,9 +124,8 @@
 
     .weather-pill {
       display: flex;
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 4px;
+      align-items: center;
+      gap: 10px;
       padding: 10px 12px;
       border-radius: 14px;
       background: rgba(0,0,0,.30);
@@ -134,8 +133,25 @@
       min-width: 160px;
     }
 
-    .weather-pill-line1 { font-size: 24px; font-weight: 650; line-height: 1.1; }
-    .weather-pill-line2 { font-size: 22px; opacity: .85; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .weather-pill-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      flex: 0 0 36px;
+    }
+
+    .weather-pill-text {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      text-align: right;
+      gap: 4px;
+    }
+
+    .weather-pill-line1 { font-size: 24px; font-weight: 650; line-height: 1.1; text-align: right; }
+    .weather-pill-line2 { font-size: 22px; opacity: .85; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
 
     .weather-icon {
       font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets", "Segoe UI Symbol", "Segoe UI Emoji", sans-serif;
@@ -149,11 +165,7 @@
       color: rgba(255,255,255,.95);
     }
 
-    .weather-pill-line1 {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-    }
+    .weather-pill-icon svg { width: 36px; height: 36px; }
 
     .weather-temp-inline { display: inline-block; }
 
@@ -403,8 +415,11 @@
           <div class="city-weather-row">
             <div id="locationLabel" class="location-label" style="display:none"></div>
             <div id="weatherPill" class="weather-pill" style="display:none">
-              <div id="weatherPillLine1" class="weather-pill-line1">--</div>
-              <div id="weatherPillLine2" class="weather-pill-line2">---</div>
+              <div id="weatherPillIcon" class="weather-pill-icon weather-icon">--</div>
+              <div class="weather-pill-text">
+                <div id="weatherPillLine1" class="weather-pill-line1">--</div>
+                <div id="weatherPillLine2" class="weather-pill-line2">---</div>
+              </div>
             </div>
           </div>
           <div id="holidayLabel" class="holiday-label" style="display:none"></div>
