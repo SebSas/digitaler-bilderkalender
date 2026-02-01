@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libheif1 libheif-dev \
     libde265-0 \
     libjpeg62-turbo \
+    docker.io \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

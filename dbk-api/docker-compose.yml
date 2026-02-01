@@ -11,6 +11,9 @@ services:
     volumes:
       - /mnt/picstorage/picstorage-album/Digi Bilderkalender Ana:/album:ro
       - ./cache:/cache
+      - /home/sebi/immichdl:/home/sebi/immichdl:ro
+      - /mnt/picstorage:/mnt/picstorage
+      - /var/run/docker.sock:/var/run/docker.sock
       - /sys:/sys:ro
       - /proc:/proc:ro
 

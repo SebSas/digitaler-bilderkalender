@@ -1,15 +1,23 @@
 import hashlib
+import json
 import os
 import pillow_heif
+import re
 import subprocess
 import time
+import urllib.parse
+import urllib.request
+
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+import threading
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from pathlib import Path
 from PIL import Image, UnidentifiedImageError
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 
 # Register HEIF/HEIC support in Pillow explicitly.
 # Some environments do not auto-register on import.
@@ -43,6 +51,38 @@ THUMB_MAX_EDGE = int(os.environ.get("DBK_THUMB_MAX_EDGE", "512"))
 
 # File extensions we consider as images in the album folder.
 SUPPORTED = {".heic", ".heif", ".jpg", ".jpeg", ".png", ".webp"}
+
+# German state mapping for geocoding results.
+STATE_NAMES = {
+    "BW": "Baden-Württemberg",
+    "BY": "Bayern",
+    "BE": "Berlin",
+    "BB": "Brandenburg",
+    "HB": "Bremen",
+    "HH": "Hamburg",
+    "HE": "Hessen",
+    "MV": "Mecklenburg-Vorpommern",
+    "NI": "Niedersachsen",
+    "NW": "Nordrhein-Westfalen",
+    "RP": "Rheinland-Pfalz",
+    "SL": "Saarland",
+    "SN": "Sachsen",
+    "ST": "Sachsen-Anhalt",
+    "SH": "Schleswig-Holstein",
+    "TH": "Thüringen",
+}
+
+WEATHER_REFRESH_MIN = timedelta(minutes=30)
+NETWORK_TIMEOUT_S = 8
+
+SYNC_STATE = {
+    "running": False,
+    "last_started": None,
+    "last_finished": None,
+    "last_exit_code": None,
+    "last_error": None,
+}
+SYNC_LOCK = threading.Lock()
 
 
 def _hash_path(p: Path) -> str:
@@ -157,6 +197,243 @@ def _read_uptime_s() -> Optional[float]:
     return float(p.read_text().split()[0])
 
 
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+
+
+def _normalize_key(value: str) -> str:
+    s = value.strip().lower()
+    s = s.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss")
+    s = re.sub(r"[^a-z0-9]+", "-", s)
+    s = re.sub(r"-{2,}", "-", s)
+    return s.strip("-")
+
+
+def _read_json(path: Path) -> Optional[Dict[str, object]]:
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _write_json(path: Path, data: Dict[str, object]) -> None:
+    _ensure_dir(path.parent)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _parse_updated_at(data: Optional[Dict[str, object]]) -> Optional[datetime]:
+    if not data:
+        return None
+    ts = data.get("updated_at")
+    if not ts or not isinstance(ts, str):
+        return None
+    try:
+        return datetime.fromisoformat(ts)
+    except Exception:
+        return None
+
+
+def _fetch_json_url(url: str, timeout_s: int = NETWORK_TIMEOUT_S) -> Dict[str, object]:
+    req = urllib.request.Request(url, headers={"User-Agent": "dbk-api/1.0"})
+    with urllib.request.urlopen(req, timeout=timeout_s) as res:
+        data = res.read().decode("utf-8")
+        return json.loads(data)
+
+
+def _geocode_cache_path(state_norm: str, name_norm: str) -> Path:
+    return CACHE_DIR / f"geocode.de-{state_norm}-{name_norm}.json"
+
+
+def _weather_cache_path(state_norm: str, name_norm: str) -> Path:
+    return CACHE_DIR / f"weather.de-{state_norm}-{name_norm}.json"
+
+
+def _holidays_cache_path(state_norm: str, year: int) -> Path:
+    return CACHE_DIR / f"holidays.de-{state_norm}-{year}.json"
+
+
+def _weather_code_to_text_icon(code: int) -> Tuple[str, str]:
+    if code == 0:
+        return "Sonnig", "sunny"
+    if code in (1, 2):
+        return "Teilweise bewölkt", "partly_cloudy_day"
+    if code == 3:
+        return "Bewölkt", "cloudy"
+    if code in (45, 48):
+        return "Nebel", "fog"
+    if code in (51, 53, 55):
+        return "Nieselregen", "drizzle"
+    if code in (61, 63, 65):
+        return "Regen", "rain"
+    if code in (66, 67):
+        return "Eisregen", "rain"
+    if code in (71, 73, 75):
+        return "Schnee", "snow"
+    if code == 77:
+        return "Schneegriesel", "snow"
+    if code in (80, 81, 82):
+        return "Schauer", "rain"
+    if code in (85, 86):
+        return "Schneeschauer", "snow"
+    if code in (95, 96, 99):
+        return "Gewitter", "storm"
+    return "Unbekannt", "unknown"
+
+
+def _fetch_geocode(name: str, state: str) -> Dict[str, object]:
+    params = {
+        "name": name,
+        "count": 5,
+        "language": "de",
+        "format": "json",
+        "country": "DE",
+    }
+    url = "https://geocoding-api.open-meteo.com/v1/search?" + urllib.parse.urlencode(params)
+    data = _fetch_json_url(url)
+    results = data.get("results") or []
+    if not isinstance(results, list) or not results:
+        raise ValueError("location not found")
+
+    state_name = STATE_NAMES.get(state.upper())
+    chosen = results[0]
+    if state_name:
+        for item in results:
+            if str(item.get("admin1", "")).lower() == state_name.lower():
+                chosen = item
+                break
+
+    display_parts = [chosen.get("name"), chosen.get("admin1"), chosen.get("country")]
+    display_name = ", ".join([p for p in display_parts if p])
+
+    return {
+        "status": "ok",
+        "country": "DE",
+        "state": state.upper(),
+        "name": name,
+        "lat": float(chosen["latitude"]),
+        "lon": float(chosen["longitude"]),
+        "timezone": chosen.get("timezone") or "Europe/Berlin",
+        "resolved_display_name": display_name,
+        "updated_at": _now_iso(),
+    }
+
+
+def _fetch_weather(geo: Dict[str, object]) -> Dict[str, object]:
+    lat = geo["lat"]
+    lon = geo["lon"]
+    timezone_name = geo.get("timezone") or "Europe/Berlin"
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "timezone": timezone_name,
+        "current": "temperature_2m,weather_code",
+        "daily": "temperature_2m_max,temperature_2m_min,weather_code",
+    }
+    url = "https://api.open-meteo.com/v1/forecast?" + urllib.parse.urlencode(params)
+    data = _fetch_json_url(url)
+    current = data.get("current") or {}
+    daily = data.get("daily") or {}
+
+    current_temp = int(round(float(current.get("temperature_2m", 0))))
+    current_code = int(current.get("weather_code", -1))
+    current_text, current_icon = _weather_code_to_text_icon(current_code)
+
+    times = daily.get("time") or []
+    maxs = daily.get("temperature_2m_max") or []
+    mins = daily.get("temperature_2m_min") or []
+    codes = daily.get("weather_code") or []
+
+    today = datetime.now(ZoneInfo(timezone_name)).date().isoformat()
+    forecast = []
+    for idx, date_str in enumerate(times):
+        if date_str <= today:
+            continue
+        if idx >= len(maxs) or idx >= len(mins) or idx >= len(codes):
+            continue
+        text, icon = _weather_code_to_text_icon(int(codes[idx]))
+        forecast.append({
+            "date": date_str,
+            "min_c": int(round(float(mins[idx]))),
+            "max_c": int(round(float(maxs[idx]))),
+            "icon": icon,
+        })
+        if len(forecast) >= 3:
+            break
+
+    return {
+        "status": "ok",
+        "updated_at": _now_iso(),
+        "location": {
+            "country": "DE",
+            "state": geo["state"],
+            "name": geo["name"],
+            "lat": lat,
+            "lon": lon,
+            "timezone": timezone_name,
+        },
+        "current": {
+            "temp_c": current_temp,
+            "condition_text": current_text,
+            "icon": current_icon,
+        },
+        "forecast_3d": forecast,
+    }
+
+
+def _fetch_holidays(state: str, year: int) -> Dict[str, object]:
+    params = {
+        "jahr": str(year),
+        "nur_land": state.upper(),
+    }
+    url = "https://feiertage-api.de/api/?" + urllib.parse.urlencode(params)
+    data = _fetch_json_url(url)
+    days = []
+    if isinstance(data, dict):
+        for name, info in data.items():
+            if isinstance(info, dict) and info.get("datum"):
+                days.append({"date": info["datum"], "name": name})
+    days.sort(key=lambda d: d["date"])
+    return {
+        "status": "ok",
+        "updated_at": _now_iso(),
+        "country": "DE",
+        "state": state.upper(),
+        "year": int(year),
+        "days": days,
+    }
+
+
+def _sync_log_path() -> Path:
+    return CACHE_DIR / "immich_sync.log"
+
+
+def _run_immich_sync() -> None:
+    try:
+        script = Path("/home/sebi/immichdl/sync_album.sh")
+        if not script.exists():
+            SYNC_STATE["last_error"] = "sync script not found"
+            return
+        log_path = _sync_log_path()
+        with log_path.open("a", encoding="utf-8") as logf:
+            proc = subprocess.Popen(
+                ["/bin/bash", str(script)],
+                stdout=logf,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            exit_code = proc.wait()
+            SYNC_STATE["last_exit_code"] = exit_code
+            if exit_code != 0:
+                SYNC_STATE["last_error"] = f"exit {exit_code}"
+    except Exception as e:
+        SYNC_STATE["last_error"] = str(e)
+    finally:
+        SYNC_STATE["running"] = False
+        SYNC_STATE["last_finished"] = _now_iso()
+
+
 @app.get("/api/system")
 def system_info() -> Dict[str, object]:
     """Basic system info for the kiosk UI (temp + uptime)."""
@@ -219,3 +496,157 @@ def image_thumb(image_id: str):
             raise HTTPException(status_code=422, detail=f"cannot decode image: {src.name}")
 
     return FileResponse(dst)
+
+
+@app.get("/api/geocode")
+def geocode(name: str, state: str, mode: str = "refresh") -> JSONResponse:
+    state_norm = _normalize_key(state)
+    name_norm = _normalize_key(name)
+    cache_path = _geocode_cache_path(state_norm, name_norm)
+    cached = _read_json(cache_path)
+
+    if mode == "cache":
+        if cached:
+            return JSONResponse(cached)
+        data = {
+            "status": "error",
+            "country": "DE",
+            "state": state.upper(),
+            "name": name,
+            "error": "cache missing",
+            "updated_at": _now_iso(),
+        }
+        return JSONResponse(data)
+
+    if cached:
+        return JSONResponse(cached)
+
+    try:
+        data = _fetch_geocode(name, state)
+    except Exception as e:
+        data = {
+            "status": "error",
+            "country": "DE",
+            "state": state.upper(),
+            "name": name,
+            "error": str(e),
+            "updated_at": _now_iso(),
+        }
+    _write_json(cache_path, data)
+    return JSONResponse(data)
+
+
+@app.get("/api/weather")
+def weather(name: str, state: str, mode: str = "refresh") -> JSONResponse:
+    state_norm = _normalize_key(state)
+    name_norm = _normalize_key(name)
+    cache_path = _weather_cache_path(state_norm, name_norm)
+    cached = _read_json(cache_path)
+
+    if mode == "cache":
+        if cached:
+            return JSONResponse(cached)
+        data = {
+            "status": "error",
+            "error": "cache missing",
+            "updated_at": _now_iso(),
+        }
+        return JSONResponse(data)
+
+    last = _parse_updated_at(cached)
+    if cached and cached.get("status") == "ok" and last:
+        if datetime.now(last.tzinfo or timezone.utc) - last < WEATHER_REFRESH_MIN:
+            return JSONResponse(cached)
+
+    geo_cache = _read_json(_geocode_cache_path(state_norm, name_norm))
+    if not geo_cache or geo_cache.get("status") != "ok":
+        data = {
+            "status": "error",
+            "error": "geocode missing or invalid",
+            "updated_at": _now_iso(),
+        }
+        _write_json(cache_path, data)
+        return JSONResponse(data)
+
+    try:
+        data = _fetch_weather(geo_cache)
+    except Exception as e:
+        data = {
+            "status": "error",
+            "error": str(e),
+            "updated_at": _now_iso(),
+        }
+    _write_json(cache_path, data)
+    return JSONResponse(data)
+
+
+@app.get("/api/holidays")
+def holidays(state: str, year: int, mode: str = "refresh") -> JSONResponse:
+    state_norm = _normalize_key(state)
+    cache_path = _holidays_cache_path(state_norm, int(year))
+    cached = _read_json(cache_path)
+
+    if mode == "cache":
+        if cached:
+            return JSONResponse(cached)
+        data = {
+            "status": "error",
+            "country": "DE",
+            "state": state.upper(),
+            "year": int(year),
+            "error": "cache missing",
+            "updated_at": _now_iso(),
+        }
+        return JSONResponse(data)
+
+    if cached:
+        return JSONResponse(cached)
+
+    try:
+        data = _fetch_holidays(state, int(year))
+    except Exception as e:
+        data = {
+            "status": "error",
+            "country": "DE",
+            "state": state.upper(),
+            "year": int(year),
+            "error": str(e),
+            "updated_at": _now_iso(),
+        }
+    _write_json(cache_path, data)
+    return JSONResponse(data)
+
+
+@app.get("/api/admin/immich-sync")
+def immich_sync_status() -> Dict[str, object]:
+    return {
+        "status": "running" if SYNC_STATE["running"] else "idle",
+        "last_started": SYNC_STATE["last_started"],
+        "last_finished": SYNC_STATE["last_finished"],
+        "last_exit_code": SYNC_STATE["last_exit_code"],
+        "last_error": SYNC_STATE["last_error"],
+    }
+
+
+@app.post("/api/admin/immich-sync")
+def immich_sync_start() -> JSONResponse:
+    with SYNC_LOCK:
+        if SYNC_STATE["running"]:
+            return JSONResponse({
+                "status": "busy",
+                "message": "sync already running",
+                "last_started": SYNC_STATE["last_started"],
+            })
+        SYNC_STATE["running"] = True
+        SYNC_STATE["last_started"] = _now_iso()
+        SYNC_STATE["last_finished"] = None
+        SYNC_STATE["last_exit_code"] = None
+        SYNC_STATE["last_error"] = None
+
+        thread = threading.Thread(target=_run_immich_sync, daemon=True)
+        thread.start()
+
+    return JSONResponse({
+        "status": "started",
+        "last_started": SYNC_STATE["last_started"],
+    })

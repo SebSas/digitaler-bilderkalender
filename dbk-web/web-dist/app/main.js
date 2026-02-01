@@ -4,6 +4,7 @@ import { fetchJson } from "./api.js";
 import { schedulePeriodicRefresh, startSlideshow, nextImage, showImage, preloadFirstImage } from "./slideshow.js";
 import { hashStringToInt, shuffleInPlace } from "./shuffle.js";
 import { updateClock } from "./time.js";
+import { bootFooter } from "./footer.js";
 import { setLastError, state } from "./state.js";
 
 async function boot() {
@@ -81,4 +82,5 @@ window.addEventListener("touchend", (ev) => {
 
 updateClock(els);
 setInterval(() => updateClock(els), 1000);
+bootFooter();
 boot();

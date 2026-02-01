@@ -68,11 +68,18 @@
       100% { transform: scale(1.08) translate3d(-1.5%, -1%, 0); }
     }
 
-    .nowbar {
+    .footer {
       position: absolute;
       left: 24px;
       right: 24px;
       bottom: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      z-index: 12;
+    }
+
+    .footer-collapsed {
       padding: 14px 18px;
       border-radius: 18px;
       background: var(--glass);
@@ -85,10 +92,211 @@
       box-shadow: 0 20px 60px rgba(0,0,0,.45);
     }
 
-    .left { display: flex; flex-direction: column; gap: 2px; }
-    .time { font-size: 34px; font-weight: 750; line-height: 1.1; letter-spacing: .2px; }
-    .date { font-size: 16px; opacity: .85; }
-    .right { font-size: 14px; opacity: .8; text-align: right; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .footer-collapsed .left { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; text-align: left; }
+    .footer-collapsed .right { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; gap: 6px; min-width: 200px; text-align: right; }
+    .time { font-size: 50px; font-weight: 750; line-height: 1.05; letter-spacing: .2px; }
+    .date { font-size: 26px; opacity: .85; }
+
+    .holiday-label {
+      font-size: 24px;
+      opacity: .9;
+      max-width: 42vw;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .location-label {
+      font-size: 50px;
+      opacity: .9;
+      max-width: 42vw;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .city-weather-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: nowrap;
+    }
+
+    .weather-pill {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 4px;
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: rgba(0,0,0,.30);
+      border: 1px solid rgba(255,255,255,.12);
+      min-width: 160px;
+    }
+
+    .weather-pill-line1 { font-size: 24px; font-weight: 650; line-height: 1.1; }
+    .weather-pill-line2 { font-size: 22px; opacity: .85; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .weather-icon {
+      font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets", "Segoe UI Symbol", "Segoe UI Emoji", sans-serif;
+    }
+
+    .weather-icon svg {
+      width: 28px;
+      height: 28px;
+      display: inline-block;
+      vertical-align: middle;
+      color: rgba(255,255,255,.95);
+    }
+
+    .weather-pill-line1 {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .weather-temp-inline { display: inline-block; }
+
+    .weather-today-main .weather-icon svg { width: 36px; height: 36px; }
+    .forecast-icon .weather-icon svg { width: 28px; height: 28px; }
+
+    .footer-expanded {
+      max-height: 0;
+      opacity: 0;
+      transform: translateY(10px);
+      pointer-events: none;
+      transition: max-height 320ms ease, opacity 320ms ease, transform 320ms ease;
+    }
+
+    .footer.expanded .footer-expanded {
+      max-height: 520px;
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+
+    .footer-expanded-inner {
+      padding: 16px 18px;
+      border-radius: 18px;
+      background: var(--glass);
+      border: 1px solid var(--glass-border);
+      backdrop-filter: blur(10px);
+      box-shadow: 0 20px 60px rgba(0,0,0,.45);
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 18px;
+    }
+
+    .calendar-header {
+      font-size: 29px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      text-transform: capitalize;
+    }
+
+    .calendar-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 6px;
+    }
+
+    .calendar-weekday {
+      font-size: 19px;
+      text-align: center;
+      opacity: .75;
+      padding: 4px 0;
+    }
+
+    .calendar-day {
+      position: relative;
+      font-size: 22px;
+      text-align: center;
+      padding: 10px 0;
+      border-radius: 10px;
+      background: rgba(0,0,0,.25);
+      border: 1px solid rgba(255,255,255,.08);
+    }
+
+    .calendar-day.dim {
+      opacity: .4;
+      background: rgba(0,0,0,.18);
+    }
+
+    .calendar-day.today {
+      background: rgba(255,255,255,.18);
+      border-color: rgba(255,255,255,.35);
+    }
+
+    .holiday-dot {
+      position: absolute;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #ffd27d;
+      left: 50%;
+      bottom: 4px;
+      transform: translateX(-50%);
+    }
+
+    .weather-expanded {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .weather-unavailable {
+      font-size: 22px;
+      opacity: .85;
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: rgba(0,0,0,.25);
+      border: 1px solid rgba(255,255,255,.10);
+    }
+
+    .weather-today {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(0,0,0,.25);
+      border: 1px solid rgba(255,255,255,.10);
+    }
+
+    .weather-today-main {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 24px;
+      font-weight: 650;
+    }
+
+    .weather-today-text { font-size: 22px; opacity: .9; }
+
+    .weather-forecast {
+      display: flex;
+      gap: 10px;
+    }
+
+    .forecast-day {
+      flex: 1;
+      padding: 10px 6px;
+      border-radius: 12px;
+      background: rgba(0,0,0,.22);
+      border: 1px solid rgba(255,255,255,.08);
+      text-align: center;
+      font-size: 19px;
+    }
+
+    .forecast-weekday { font-size: 19px; opacity: .85; margin-bottom: 4px; }
+    .forecast-icon { font-size: 26px; margin-bottom: 2px; }
+    .forecast-temp { font-size: 19px; opacity: .9; }
+
+    @media (max-width: 900px) {
+      .footer { left: 16px; right: 16px; bottom: 16px; }
+      .footer-expanded-inner { grid-template-columns: 1fr; }
+      .calendar-grid { gap: 4px; }
+    }
 
     .pill {
       position: absolute;
@@ -189,12 +397,44 @@
       <div class="touchhint" style="display:none">Wischen: zurück/vor • 5× oben rechts: Debug</div>
     </div>
 
-    <div class="nowbar">
-      <div class="left">
-        <div id="time" class="time">--:--</div>
-        <div id="date" class="date">---</div>
+    <div id="footer" class="footer">
+      <div id="footerCollapsed" class="footer-collapsed">
+        <div class="left">
+          <div class="city-weather-row">
+            <div id="locationLabel" class="location-label" style="display:none"></div>
+            <div id="weatherPill" class="weather-pill" style="display:none">
+              <div id="weatherPillLine1" class="weather-pill-line1">--</div>
+              <div id="weatherPillLine2" class="weather-pill-line2">---</div>
+            </div>
+          </div>
+          <div id="holidayLabel" class="holiday-label" style="display:none"></div>
+        </div>
+        <div class="right">
+          <div id="time" class="time">--:--</div>
+          <div id="date" class="date">---</div>
+          <div id="subtitle" style="display:none"></div>
+        </div>
       </div>
-      <div id="subtitle" class="right"></div>
+
+      <div id="footerExpanded" class="footer-expanded" aria-hidden="true">
+        <div class="footer-expanded-inner">
+          <div class="calendar">
+            <div id="calendarHeader" class="calendar-header">---</div>
+            <div id="calendarGrid" class="calendar-grid"></div>
+          </div>
+          <div id="weatherExpanded" class="weather-expanded">
+            <div id="weatherUnavailable" class="weather-unavailable" style="display:none">Wetter nicht verfügbar</div>
+            <div id="weatherToday" class="weather-today">
+              <div class="weather-today-main">
+                <span id="weatherTodayIcon" class="weather-icon">--</span>
+                <span id="weatherTodayTemp" class="weather-temp">--°C</span>
+              </div>
+              <div id="weatherTodayText" class="weather-today-text">---</div>
+            </div>
+            <div id="weatherForecast" class="weather-forecast"></div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div id="overlay" class="overlay" style="display:none">
