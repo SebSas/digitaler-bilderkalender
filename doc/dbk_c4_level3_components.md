@@ -8,67 +8,136 @@ Der **Digitale Bilderkalender (DBK)** ist als Client/Server-System aufgebaut:
 - **Client** ist ein **Raspberry Pi** mit Display, der Bilder **lokal spiegelt** (Snapshot) und sie über eine **Kiosk-Webapp** anzeigt.
 - Die Verbindung zwischen Client und Server erfolgt über **Tailscale** (VPN/MagicDNS).
 
-Wichtiges Prinzip:  
-**Quelle der Wahrheit ist das Immich-Album.**  
+Wichtiges Prinzip:
+**Quelle der Wahrheit ist das Immich-Album.**
 Der DBK-Client arbeitet mit einem **lokalen Snapshot** (lokales Dateisystem), um Anzeige und Performance stabil zu halten.
 
 ---
+## System Übersicht
+```mermaid
+flowchart TB
+  user["iOS Nutzer<br>(Fotos hinzufügen/entfernen)"]
+  immichApp["iOS Immich App"]
+  fs["framework-server<br>Immich"]
+  dbk["DBK Client<br>(Raspberry Pi + Display)"]
+  ts["Tailscale<br>(VPN / MagicDNS)"]
+  album["Immich Album<br>Digi Kalender Ana<br>(shared)"]
 
+  user --> immichApp
+  immichApp -->|upload / manage album| fs
+  fs --> album
+
+  dbk <-->|encrypted tunnel| ts
+  ts <-->|encrypted tunnel| fs
+
+  dbk -->|shows photos from album| album
+```
+```mermaid
+flowchart LR
+  %% ===== Server Side =====
+  subgraph FS["framework-server"]
+    I["iOS Photos / Immich Mobile App"]
+    IM["Immich Server"]
+    U["User: \"Digi Bilderkalender Ana\""]
+    A["Shared Album: \"Digi Kalender Ana\""]
+
+    I -->|upload/add/remove| IM
+    IM -->|dedicated user| U
+    IM -->|album shared with user| A
+  end
+
+  %% ===== Connectivity =====
+  TS["Tailscale (MagicDNS / VPN)"]
+
+  %% ===== Client Side =====
+  subgraph DBK["DBK Client (Raspberry Pi + Display)"]
+    DL["Sync Job\n(Cron/Systemd Script)"]
+    ST["Local Storage\n(downloaded photos)"]
+    WEB["dbk-web\n(Chromium Kiosk)"]
+    API["dbk-api\n(/api/images, /api/image/{id})"]
+    NX["Nginx Reverse Proxy\n(same-origin for webapp)"]
+
+    DL -->|downloads/updates| ST
+    WEB -->|HTTP same-origin| NX
+    NX --> API
+    NX --> WEB
+    API -->|serves file bytes/paths| ST
+  end
+
+  %% ===== Links =====
+  DBK <-->|encrypted tunnel| TS
+  TS <-->|encrypted tunnel| FS
+
+  %% Option: How sync gets album content (implementation-specific)
+  DL -.->|fetches album media\nImmich API or other| IM
+```
+---
 ## Component Diagram (DBK – Top Down)
 
 ```mermaid
-flowchart TB
-  subgraph DBK[DBK Client (Raspberry Pi)]
-    subgraph WEB[Web UI (Chromium)]
-      UI[Slideshow UI\n(fullscreen + touch)]
-      FOOTER[Footer UI\n(time/date/holiday/weather)]
-      CFG[Client Config Loader\n(location/settings)]
-      UI --> FOOTER
-      UI --> CFG
-    end
+%%{init: {
+  "theme": "dark",
+  "flowchart": { "nodeSpacing": 70, "rankSpacing": 90, "curve": "basis" }
+}}%%
+flowchart LR
 
-    subgraph WEB_SRV[dbk-web (Nginx)]
-      STATIC[Static Assets\n(index.html, js, css)]
-      RP[Reverse Proxy\nsame-origin /api -> dbk-api]
-      STATIC --> RP
-    end
-
-    subgraph API[dbk-api]
-      IMG_IDX[Image Index Endpoint\nGET /api/images]
-      IMG_GET[Image Content Endpoint\nGET /api/image/{id}]
-      HEALTH[Health Endpoint\nGET /api/health]
-      META[Optional: Metadata/Info\n(e.g. EXIF/date sorting)]
-      IMG_IDX --> META
-    end
-
-    subgraph STORE[Local Storage]
-      ALBUM_DIR[Album Snapshot Folder\n(downloaded photos)]
-      CACHE[Cache Folder\n(derived data: weather/geocode/etc.)]
-    end
-
-    subgraph SYNC[Sync/Downloader]
-      FETCH[Fetch Album Media\n(Immich/API/etc.)]
-      MIRROR[Mirror to Local Folder\n(add/update/delete)]
-      FETCH --> MIRROR
-      MIRROR --> ALBUM_DIR
-    end
-
-    UI -->|GET same-origin| WEB_SRV
-    WEB_SRV -->|/api/*| API
-    IMG_IDX --> ALBUM_DIR
-    IMG_GET --> ALBUM_DIR
-    FOOTER -.->|optional cached data| CACHE
-    API --> CACHE
+  %% ===== Web UI =====
+  subgraph WEB["Web UI (Chromium)"]
+    UI["Slideshow UI<br/>(fullscreen + touch)"]
+    FOOT["Footer UI<br/>time/date/holiday/weather"]
+    CFG["Client Config Loader<br/>location/settings"]
+    UI --> FOOT
+    UI --> CFG
   end
-```
 
+  %% ===== Web Server =====
+  subgraph WEB_SRV["dbk-web (Nginx)"]
+    STATIC["Static Assets<br/>index.html, js, css"]
+    RP["Reverse Proxy<br/>same-origin /api to dbk-api"]
+    STATIC --> RP
+  end
+
+  %% ===== API =====
+  subgraph API["dbk-api"]
+    IDX["Image Index<br/>GET /api/images"]
+    IMG["Image Content<br/>GET /api/image/:id"]
+    HEALTH["Health<br/>GET /api/health"]
+    META["Optional: Metadata/Info<br/>EXIF/date sorting"]
+    IDX --> META
+  end
+
+  %% ===== Storage =====
+  subgraph STORE["Local Storage (Secondary SD Card)"]
+    ALBUM["Album Snapshot Folder<br/>downloaded photos"]
+    CACHE["Cache Folder<br/>derived data<br/>(weather/geocode/etc.)"]
+  end
+
+  %% ===== Sync =====
+  subgraph SYNC["Sync/Downloader"]
+    FETCH["Fetch Album Media<br/>Immich/API/etc."]
+    MIRROR["Mirror to Local Folder<br/>add/update/delete"]
+    FETCH --> MIRROR
+  end
+
+  %% ===== Main flow (keep it simple + short) =====
+  UI -->|"GET / (same-origin)"| WEB_SRV
+  WEB_SRV -->|"/api/*"| API
+
+  MIRROR --> ALBUM
+  IDX --> ALBUM
+  IMG --> ALBUM
+
+  API --> CACHE
+  FOOT -.->|"optional cached data"| CACHE
+
+```
 ---
 
 ## Komponenten im Detail
 
 ### 1) Web UI (Chromium Kiosk)
 
-**Zweck**  
+**Zweck**
 - Stellt die Benutzeroberfläche dar: Vollbild-Slideshow, Touch-Interaktion, ggf. Footer.
 - Ist absichtlich „dumm“ gehalten: holt Daten über HTTP, rendert, reagiert auf Touch.
 
@@ -93,7 +162,7 @@ flowchart TB
 - UI zeigt alte Version → Browsercache / Static Assets nicht aktualisiert / falsches `web-dist` im Container
 
 **Tests als Doku (Empfehlung)**
-- *UI ist schwer unit-testbar ohne Browserautomation.*  
+- *UI ist schwer unit-testbar ohne Browserautomation.*
   Minimal sinnvoll:
   - `test_config_load_defaults_when_missing()` (JS Unit)
   - `test_image_list_empty_shows_fallback()` (JS Unit / snapshot)
@@ -243,10 +312,10 @@ flowchart TB
 
 ## Datenfluss – End-to-End (verständlich, aber präzise)
 
-1. Auf iOS werden Fotos erstellt und in Immich hochgeladen.  
-2. Ein dedizierter Immich-User („Digi Bilderkalender Ana“) hat Zugriff auf das geteilte Album („Digi Kalender Ana“).  
-3. Der DBK-Client erreicht den `framework-server` über Tailscale (VPN/MagicDNS).  
-4. Ein Sync-Job spiegelt den Album-Inhalt in ein lokales Snapshot-Verzeichnis auf dem DBK-Client.  
+1. Auf iOS werden Fotos erstellt und in Immich hochgeladen.
+2. Ein dedizierter Immich-User („Digi Bilderkalender Ana“) hat Zugriff auf das geteilte Album („Digi Kalender Ana“).
+3. Der DBK-Client erreicht den `framework-server` über Tailscale (VPN/MagicDNS).
+4. Ein Sync-Job spiegelt den Album-Inhalt in ein lokales Snapshot-Verzeichnis auf dem DBK-Client.
 5. Die Kiosk-Webapp ruft `/api/images` ab, lädt das aktuelle Bild über `/api/image/{id}` und rendert es im Fullscreen.
 
 ---
@@ -261,6 +330,6 @@ flowchart TB
 
 ## Warum diese Struktur sinnvoll ist
 
-- **Stabilität:** UI ist unabhängig von momentaner Server-Latenz, weil lokal gecached.  
-- **Debugbarkeit:** Klare Schnittstellen (HTTP + Filesystem).  
+- **Stabilität:** UI ist unabhängig von momentaner Server-Latenz, weil lokal gecached.
+- **Debugbarkeit:** Klare Schnittstellen (HTTP + Filesystem).
 - **Erweiterbarkeit:** Mehr Kalender = weiterer Sync + weiterer Album-Ordner + ggf. weitere Konfig.
