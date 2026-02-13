@@ -1,5 +1,5 @@
-import { els } from "./dom.js";
-import { fetchJsonWithTimeout } from "./api.js";
+import { els, setOverlay } from "./dom.js";
+import { fetchJsonWithTimeout, postJsonWithTimeout } from "./api.js";
 import { state } from "./state.js";
 import { iconSvg } from "./icons.js";
 
@@ -27,6 +27,7 @@ let footerIdleTimer = null;
 let weatherRefreshTimer = null;
 let weatherRefreshInFlight = false;
 let lastWeatherRefresh = 0;
+let shutdownInFlight = false;
 
 function toYmd(date) {
   const y = date.getFullYear();
@@ -293,6 +294,35 @@ async function refreshHolidays() {
   } catch (e) {}
 }
 
+async function requestShutdown() {
+  if (shutdownInFlight) return;
+  const confirmed = window.confirm("System jetzt herunterfahren?");
+  if (!confirmed) return;
+
+  shutdownInFlight = true;
+  if (els.shutdownBtn) els.shutdownBtn.disabled = true;
+  setOverlay(true, "Herunterfahren…", "Sende Ausschaltbefehl…");
+
+  try {
+    const data = await postJsonWithTimeout("/api/admin/shutdown", {}, 7000);
+    const status = data?.status || "unknown";
+    if (status !== "started" && status !== "busy") {
+      throw new Error(data?.error || data?.message || "Unerwartete Antwort vom Server");
+    }
+    if (status === "busy") {
+      setOverlay(true, "Herunterfahren…", "Herunterfahren wurde bereits gestartet.");
+      return;
+    }
+    setOverlay(true, "Herunterfahren…", "System wird heruntergefahren.");
+  } catch (e) {
+    const msg = String(e?.message || e);
+    setOverlay(true, "Herunterfahren fehlgeschlagen", msg);
+    shutdownInFlight = false;
+    if (els.shutdownBtn) els.shutdownBtn.disabled = false;
+    setTimeout(() => setOverlay(false), 5000);
+  }
+}
+
 function attachFooterHandlers() {
   if (els.footerCollapsed) {
     els.footerCollapsed.addEventListener("click", () => setExpanded(!footerExpanded));
@@ -301,6 +331,15 @@ function attachFooterHandlers() {
   if (els.footerExpanded) {
     els.footerExpanded.addEventListener("click", resetFooterIdleTimer);
     els.footerExpanded.addEventListener("touchstart", resetFooterIdleTimer, { passive: true });
+  }
+  if (els.shutdownBtn) {
+    els.shutdownBtn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      requestShutdown();
+    });
+    els.shutdownBtn.addEventListener("touchstart", (ev) => {
+      ev.stopPropagation();
+    }, { passive: true });
   }
 }
 

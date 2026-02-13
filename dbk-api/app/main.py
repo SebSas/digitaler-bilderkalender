@@ -84,6 +84,16 @@ SYNC_STATE = {
 }
 SYNC_LOCK = threading.Lock()
 
+SHUTDOWN_STATE = {
+    "running": False,
+    "last_requested": None,
+    "last_finished": None,
+    "last_status": None,
+    "last_error": None,
+    "attempts": [],
+}
+SHUTDOWN_LOCK = threading.Lock()
+
 
 def _hash_path(p: Path) -> str:
     """
@@ -183,6 +193,28 @@ def _run(cmd: List[str]) -> str:
         return out.strip()
     except Exception as e:
         return f"ERR: {e}"
+
+
+def _run_command(cmd: List[str], timeout_s: int = 35) -> Tuple[int, str]:
+    """Run command and capture output without raising."""
+    try:
+        proc = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=timeout_s,
+        )
+        return proc.returncode, (proc.stdout or "").strip()
+    except subprocess.TimeoutExpired as e:
+        out = e.stdout or ""
+        if isinstance(out, bytes):
+            out = out.decode("utf-8", "ignore")
+        return 124, f"timeout after {timeout_s}s\n{str(out).strip()}"
+    except Exception as e:
+        return 1, str(e)
+
+
 def _read_cpu_temp_c() -> Optional[float]:
     """Read CPU temp from sysfs (works if /sys is mounted into the container)."""
     p = Path("/sys/class/thermal/thermal_zone0/temp")
@@ -446,6 +478,80 @@ def _run_immich_sync() -> None:
         SYNC_STATE["last_finished"] = _now_iso()
 
 
+def _run_shutdown_worker() -> None:
+    attempts: List[Dict[str, object]] = []
+    success = False
+    last_error = None
+
+    # Small delay so the API can return before poweroff interrupts the stack.
+    time.sleep(2)
+
+    command_plan: List[List[str]] = [
+        ["/usr/bin/systemctl", "poweroff"],
+        ["/sbin/shutdown", "-h", "now"],
+        ["/sbin/poweroff"],
+        ["shutdown", "-h", "now"],
+        ["poweroff"],
+        [
+            "/usr/local/bin/docker",
+            "run",
+            "--rm",
+            "--privileged",
+            "--pid=host",
+            "--network",
+            "host",
+            "-v",
+            "/:/host",
+            "python:3.13-slim",
+            "sh",
+            "-lc",
+            "chroot /host /sbin/shutdown -h now || chroot /host /sbin/poweroff || chroot /host /usr/bin/systemctl poweroff",
+        ],
+        [
+            "/usr/local/bin/docker",
+            "run",
+            "--rm",
+            "--privileged",
+            "--pid=host",
+            "--network",
+            "host",
+            "-v",
+            "/:/host",
+            "alpine:3.20",
+            "sh",
+            "-lc",
+            "chroot /host /sbin/shutdown -h now || chroot /host /sbin/poweroff || chroot /host /usr/bin/systemctl poweroff",
+        ],
+    ]
+
+    try:
+        for cmd in command_plan:
+            code, out = _run_command(cmd, timeout_s=35)
+            attempts.append({
+                "cmd": cmd,
+                "exit_code": code,
+                "output": out[:1200],
+            })
+            if code == 0:
+                success = True
+                break
+        if not success:
+            if attempts:
+                last = attempts[-1]
+                last_error = f"all shutdown attempts failed (last exit={last['exit_code']})"
+            else:
+                last_error = "no shutdown attempt executed"
+    except Exception as e:
+        last_error = str(e)
+    finally:
+        with SHUTDOWN_LOCK:
+            SHUTDOWN_STATE["running"] = False
+            SHUTDOWN_STATE["last_finished"] = _now_iso()
+            SHUTDOWN_STATE["last_status"] = "ok" if success else "error"
+            SHUTDOWN_STATE["last_error"] = last_error
+            SHUTDOWN_STATE["attempts"] = attempts
+
+
 @app.get("/api/system")
 def system_info() -> Dict[str, object]:
     """Basic system info for the kiosk UI (temp + uptime)."""
@@ -661,4 +767,41 @@ def immich_sync_start() -> JSONResponse:
     return JSONResponse({
         "status": "started",
         "last_started": SYNC_STATE["last_started"],
+    })
+
+
+@app.get("/api/admin/shutdown")
+def shutdown_status() -> Dict[str, object]:
+    with SHUTDOWN_LOCK:
+        return {
+            "status": "running" if SHUTDOWN_STATE["running"] else (SHUTDOWN_STATE["last_status"] or "idle"),
+            "last_requested": SHUTDOWN_STATE["last_requested"],
+            "last_finished": SHUTDOWN_STATE["last_finished"],
+            "last_error": SHUTDOWN_STATE["last_error"],
+            "attempts": SHUTDOWN_STATE["attempts"],
+        }
+
+
+@app.post("/api/admin/shutdown")
+def shutdown_start() -> JSONResponse:
+    with SHUTDOWN_LOCK:
+        if SHUTDOWN_STATE["running"]:
+            return JSONResponse({
+                "status": "busy",
+                "last_requested": SHUTDOWN_STATE["last_requested"],
+            })
+
+        SHUTDOWN_STATE["running"] = True
+        SHUTDOWN_STATE["last_requested"] = _now_iso()
+        SHUTDOWN_STATE["last_finished"] = None
+        SHUTDOWN_STATE["last_status"] = "starting"
+        SHUTDOWN_STATE["last_error"] = None
+        SHUTDOWN_STATE["attempts"] = []
+
+        thread = threading.Thread(target=_run_shutdown_worker, daemon=True)
+        thread.start()
+
+    return JSONResponse({
+        "status": "started",
+        "last_requested": SHUTDOWN_STATE["last_requested"],
     })

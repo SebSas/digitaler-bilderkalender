@@ -27,6 +27,7 @@ export const els = {
   weatherTodayTemp: document.getElementById("weatherTodayTemp"),
   weatherTodayText: document.getElementById("weatherTodayText"),
   weatherForecast: document.getElementById("weatherForecast"),
+  shutdownBtn: document.getElementById("shutdownBtn"),
   overlay: document.getElementById("overlay"),
   overlayTitle: document.getElementById("overlayTitle"),
   overlayText: document.getElementById("overlayText"),

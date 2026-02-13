@@ -212,7 +212,8 @@
     }
 
     .footer-expanded-inner {
-      padding: 16px 18px;
+      position: relative;
+      padding: 16px 18px 82px 18px;
       border-radius: 18px;
       background: rgba(10,16,28,.70);
       border: 1px solid rgba(255,255,255,.18);
@@ -221,6 +222,40 @@
       display: grid;
       grid-template-columns: 1.2fr 1fr;
       gap: 18px;
+    }
+
+    .shutdown-btn {
+      position: absolute;
+      right: 16px;
+      bottom: 14px;
+      width: 56px;
+      height: 56px;
+      border-radius: 999px;
+      border: 2px solid rgba(255,255,255,.92);
+      background: rgba(0,0,0,.30);
+      color: rgba(255,255,255,.95);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 12px 24px rgba(0,0,0,.35);
+      transition: transform 120ms ease, background 120ms ease, border-color 120ms ease;
+    }
+
+    .shutdown-btn svg {
+      width: 34px;
+      height: 34px;
+      display: block;
+    }
+
+    .shutdown-btn:active {
+      transform: scale(.97);
+      background: rgba(255,255,255,.12);
+    }
+
+    .shutdown-btn:disabled {
+      opacity: .65;
+      cursor: default;
     }
 
     .calendar-header {
@@ -488,6 +523,12 @@
             <div class="weather-header">3-Tages Vorhersage</div>
             <div id="weatherForecast" class="weather-forecast"></div>
           </div>
+          <button id="shutdownBtn" class="shutdown-btn" type="button" aria-label="System herunterfahren">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 2v9" />
+              <path d="M7.4 4.8a9 9 0 1 0 9.2 0" />
+            </svg>
+          </button>
         </div>
       </div>
     </div>
