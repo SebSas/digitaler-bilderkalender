@@ -5,6 +5,24 @@ import { imageUrl, preload } from "./media.js";
 import { hashStringToInt, shuffleInPlace } from "./shuffle.js";
 import { setLastError, state } from "./state.js";
 
+let swapId = 0;
+const fadeMs = 900;
+
+function waitForImage(img) {
+  if (img.decode) {
+    return img.decode().catch(() => {});
+  }
+  return new Promise((resolve) => {
+    const done = () => {
+      img.onload = null;
+      img.onerror = null;
+      resolve();
+    };
+    img.onload = done;
+    img.onerror = done;
+  });
+}
+
 export async function refreshImagesList() {
   try {
     const list = await fetchJson("/api/images");
@@ -35,16 +53,34 @@ export function schedulePeriodicRefresh() {
 export function showImage(obj) {
   const url = imageUrl(obj.id);
 
-  const front = state.showingA ? els.imgA : els.imgB;
-  const back = state.showingA ? els.imgB : els.imgA;
+  const incoming = state.showingA ? els.imgA : els.imgB;
+  const outgoing = state.showingA ? els.imgB : els.imgA;
+  const incomingBg = state.showingA ? els.imgA_bg : els.imgB_bg;
+  const incomingSlot = state.showingA ? els.slotA : els.slotB;
+  const outgoingSlot = state.showingA ? els.slotB : els.slotA;
+  const thisSwap = ++swapId;
 
-  back.classList.remove("show", "kenburns");
-  back.style.opacity = "";
+  incoming.classList.remove("kenburns");
+  incomingSlot.classList.remove("show", "portrait");
 
-  front.style.opacity = "";
-  front.src = url;
-  front.alt = obj.name || "";
-  front.classList.add("show", "kenburns");
+  incoming.src = url;
+  incoming.alt = obj.name || "";
+  incomingBg.src = url;
+
+  waitForImage(incoming).then(() => {
+    if (thisSwap !== swapId) return;
+    const isPortrait = incoming.naturalHeight > incoming.naturalWidth;
+    incomingSlot.classList.toggle("portrait", isPortrait);
+    incoming.classList.toggle("kenburns", !isPortrait);
+    incomingSlot.classList.add("show");
+    outgoingSlot.classList.remove("show");
+    const cleanupId = thisSwap;
+    setTimeout(() => {
+      if (cleanupId !== swapId) return;
+      outgoingSlot.classList.remove("portrait");
+      outgoing.classList.remove("kenburns");
+    }, fadeMs + 50);
+  });
 
   els.filePill.style.display = "none";
   els.filePill.textContent = "";

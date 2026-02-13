@@ -6,8 +6,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libheif1 libheif-dev \
     libde265-0 \
     libjpeg62-turbo \
-    docker.io \
-    && rm -rf /var/lib/apt/lists/*
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL "https://download.docker.com/linux/static/stable/aarch64/docker-29.1.5.tgz" \
+      | tar -xz --strip-components=1 -C /usr/local/bin docker/docker
 
 WORKDIR /app
 COPY app /app

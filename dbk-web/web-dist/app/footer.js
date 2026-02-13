@@ -133,14 +133,7 @@ function renderExpandedWeather() {
     return;
   }
   if (els.weatherUnavailable) els.weatherUnavailable.style.display = "none";
-  if (els.weatherToday) els.weatherToday.style.display = "flex";
-
-  const temp = weatherData.current?.temp_c;
-  const condition = truncate(weatherData.current?.condition_text || "", 28);
-  const icon = iconMarkup(weatherData.current?.icon);
-  els.weatherTodayIcon.innerHTML = icon;
-  els.weatherTodayTemp.textContent = `${temp}°C`;
-  els.weatherTodayText.textContent = condition;
+  if (els.weatherToday) els.weatherToday.style.display = "none";
 
   if (els.weatherForecast) {
     els.weatherForecast.innerHTML = "";
@@ -154,15 +147,30 @@ function renderExpandedWeather() {
       const line1 = document.createElement("div");
       line1.className = "forecast-weekday";
       line1.textContent = weekday;
-      const line2 = document.createElement("div");
-      line2.className = "forecast-icon";
-      line2.innerHTML = iconMarkup(day.icon);
-      const line3 = document.createElement("div");
-      line3.className = "forecast-temp";
-      line3.textContent = `${day.min_c}/${day.max_c}°`;
+
+      const main = document.createElement("div");
+      main.className = "forecast-main";
+
+      const icon = document.createElement("div");
+      icon.className = "forecast-icon";
+      icon.innerHTML = iconMarkup(day.icon);
+
+      const temps = document.createElement("div");
+      temps.className = "forecast-temps";
+      const tMin = document.createElement("div");
+      tMin.className = "forecast-min";
+      tMin.textContent = `${day.min_c}°`;
+      const tMax = document.createElement("div");
+      tMax.className = "forecast-max";
+      tMax.textContent = `${day.max_c}°`;
+      temps.appendChild(tMin);
+      temps.appendChild(tMax);
+
+      main.appendChild(icon);
+      main.appendChild(temps);
+
       card.appendChild(line1);
-      card.appendChild(line2);
-      card.appendChild(line3);
+      card.appendChild(main);
       els.weatherForecast.appendChild(card);
     });
   }

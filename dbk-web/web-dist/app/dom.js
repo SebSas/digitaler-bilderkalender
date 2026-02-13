@@ -1,4 +1,8 @@
 export const els = {
+  slotA: document.getElementById("slotA"),
+  slotB: document.getElementById("slotB"),
+  imgA_bg: document.getElementById("imgA_bg"),
+  imgB_bg: document.getElementById("imgB_bg"),
   imgA: document.getElementById("imgA"),
   imgB: document.getElementById("imgB"),
   filePill: document.getElementById("filePill"),

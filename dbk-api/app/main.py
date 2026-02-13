@@ -16,7 +16,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from pathlib import Path
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 from typing import List, Dict, Optional, Tuple
 
 # Register HEIF/HEIC support in Pillow explicitly.
@@ -133,6 +133,8 @@ def _convert(src: Path, dst: Path, max_edge: int) -> None:
     _ensure_dir(dst.parent)
 
     with Image.open(src) as im:
+        # Respect camera orientation stored in EXIF (e.g., portrait photos).
+        im = ImageOps.exif_transpose(im)
         # Normalize to RGB for consistent output.
         im = im.convert("RGB")
         im = _resize(im, max_edge)
@@ -417,16 +419,26 @@ def _run_immich_sync() -> None:
             return
         log_path = _sync_log_path()
         with log_path.open("a", encoding="utf-8") as logf:
+            logf.write(f"\n[{_now_iso()}] sync start\n")
+            logf.flush()
             proc = subprocess.Popen(
                 ["/bin/bash", str(script)],
-                stdout=logf,
+                stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
+                bufsize=1,
             )
+            if proc.stdout is not None:
+                for line in proc.stdout:
+                    line = line.rstrip("\n")
+                    logf.write(f"[{_now_iso()}] {line}\n")
+                    logf.flush()
             exit_code = proc.wait()
             SYNC_STATE["last_exit_code"] = exit_code
             if exit_code != 0:
                 SYNC_STATE["last_error"] = f"exit {exit_code}"
+            logf.write(f"[{_now_iso()}] sync end (exit {exit_code})\n")
+            logf.flush()
     except Exception as e:
         SYNC_STATE["last_error"] = str(e)
     finally:

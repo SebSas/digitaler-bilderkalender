@@ -43,6 +43,16 @@
       background: var(--bg);
     }
 
+    .slot {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      transition: opacity 900ms ease;
+      will-change: opacity;
+    }
+
+    .slot.show { opacity: 1; }
+
     .img {
       position: absolute;
       inset: 0;
@@ -51,13 +61,27 @@
       height: 100%;
       object-fit: cover;
       transform: scale(1.02);
-      opacity: 0;
-      transition: opacity 900ms ease;
-      will-change: opacity, transform;
+      opacity: 1;
+      transition: none;
+      will-change: transform;
       pointer-events: none;
     }
 
-    .img.show { opacity: 1; }
+    .img-fg { z-index: 2; }
+    .img-bg {
+      z-index: 1;
+      opacity: 0;
+      transition: opacity 400ms ease;
+      filter: blur(28px) saturate(1.05) brightness(0.95);
+      transform: scale(1.12);
+    }
+
+    .slot.portrait .img-fg {
+      object-fit: contain;
+      transform: scale(1.03);
+    }
+
+    .slot.portrait .img-bg { opacity: 1; }
 
     /* subtle premium zoom (Ken Burns light) */
     .img.kenburns {
@@ -82,14 +106,14 @@
     .footer-collapsed {
       padding: 14px 18px;
       border-radius: 18px;
-      background: var(--glass);
-      border: 1px solid var(--glass-border);
-      backdrop-filter: blur(10px);
+      background: rgba(10,16,28,.70);
+      border: 1px solid rgba(255,255,255,.18);
+      backdrop-filter: blur(14px) saturate(1.05);
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 16px;
-      box-shadow: 0 20px 60px rgba(0,0,0,.45);
+      box-shadow: 0 20px 60px rgba(0,0,0,.60);
     }
 
     .footer-collapsed .left { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; text-align: left; }
@@ -158,19 +182,19 @@
     }
 
     .weather-icon svg {
-      width: 28px;
-      height: 28px;
+      width: 64px;
+      height: 64px;
       display: inline-block;
       vertical-align: middle;
       color: rgba(255,255,255,.95);
     }
 
-    .weather-pill-icon svg { width: 36px; height: 36px; }
+    .weather-pill-icon svg { width: 64px; height: 64px; }
 
     .weather-temp-inline { display: inline-block; }
 
     .weather-today-main .weather-icon svg { width: 36px; height: 36px; }
-    .forecast-icon .weather-icon svg { width: 28px; height: 28px; }
+    .forecast-icon .weather-icon svg { width: 48px; height: 48px; }
 
     .footer-expanded {
       max-height: 0;
@@ -190,10 +214,10 @@
     .footer-expanded-inner {
       padding: 16px 18px;
       border-radius: 18px;
-      background: var(--glass);
-      border: 1px solid var(--glass-border);
-      backdrop-filter: blur(10px);
-      box-shadow: 0 20px 60px rgba(0,0,0,.45);
+      background: rgba(10,16,28,.70);
+      border: 1px solid rgba(255,255,255,.18);
+      backdrop-filter: blur(14px) saturate(1.05);
+      box-shadow: 0 20px 60px rgba(0,0,0,.60);
       display: grid;
       grid-template-columns: 1.2fr 1fr;
       gap: 18px;
@@ -236,7 +260,8 @@
 
     .calendar-day.today {
       background: rgba(255,255,255,.18);
-      border-color: rgba(255,255,255,.35);
+      border-color: rgba(255,255,255,.55);
+      box-shadow: 0 0 0 1px rgba(255,255,255,.18), 0 0 10px rgba(255,255,255,.15);
     }
 
     .holiday-dot {
@@ -255,6 +280,15 @@
       flex-direction: column;
       gap: 10px;
     }
+
+    .weather-header {
+      font-size: 29px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      text-transform: capitalize;
+    }
+
+    .weather-today { display: none; }
 
     .weather-unavailable {
       font-size: 22px;
@@ -286,23 +320,29 @@
     .weather-today-text { font-size: 22px; opacity: .9; }
 
     .weather-forecast {
-      display: flex;
-      gap: 10px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
     }
 
     .forecast-day {
-      flex: 1;
-      padding: 10px 6px;
+      padding: 12px 10px;
       border-radius: 12px;
       background: rgba(0,0,0,.22);
       border: 1px solid rgba(255,255,255,.08);
-      text-align: center;
-      font-size: 19px;
+      text-align: left;
+      font-size: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
     }
 
-    .forecast-weekday { font-size: 19px; opacity: .85; margin-bottom: 4px; }
-    .forecast-icon { font-size: 26px; margin-bottom: 2px; }
-    .forecast-temp { font-size: 19px; opacity: .9; }
+    .forecast-weekday { font-size: 22px; font-weight: 650; opacity: .9; margin: 0; }
+    .forecast-main { display: flex; align-items: center; gap: 10px; }
+    .forecast-icon { font-size: 26px; }
+    .forecast-temps { display: flex; flex-direction: column; line-height: 1.05; }
+    .forecast-min { font-size: 20px; opacity: .8; }
+    .forecast-max { font-size: 24px; font-weight: 700; }
 
     @media (max-width: 900px) {
       .footer { left: 16px; right: 16px; bottom: 16px; }
@@ -403,8 +443,14 @@
 <body>
   <div id="app">
     <div class="layer">
-      <img id="imgA" class="img" alt="" />
-      <img id="imgB" class="img" alt="" />
+      <div id="slotA" class="slot">
+        <img id="imgA_bg" class="img img-bg" alt="" aria-hidden="true" />
+        <img id="imgA" class="img img-fg" alt="" />
+      </div>
+      <div id="slotB" class="slot">
+        <img id="imgB_bg" class="img img-bg" alt="" aria-hidden="true" />
+        <img id="imgB" class="img img-fg" alt="" />
+      </div>
       <div id="filePill" class="pill" style="display:none"></div>
       <div class="touchhint" style="display:none">Wischen: zurück/vor • 5× oben rechts: Debug</div>
     </div>
@@ -439,13 +485,7 @@
           </div>
           <div id="weatherExpanded" class="weather-expanded">
             <div id="weatherUnavailable" class="weather-unavailable" style="display:none">Wetter nicht verfügbar</div>
-            <div id="weatherToday" class="weather-today">
-              <div class="weather-today-main">
-                <span id="weatherTodayIcon" class="weather-icon">--</span>
-                <span id="weatherTodayTemp" class="weather-temp">--°C</span>
-              </div>
-              <div id="weatherTodayText" class="weather-today-text">---</div>
-            </div>
+            <div class="weather-header">3-Tages Vorhersage</div>
             <div id="weatherForecast" class="weather-forecast"></div>
           </div>
         </div>
