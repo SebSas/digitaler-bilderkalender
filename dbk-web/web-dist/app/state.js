@@ -20,6 +20,14 @@ export const state = {
     syncStatus: null,
     syncDetail: null,
   },
+  system: {
+    status: null,
+    temp_c: null,
+    uptime_s: null,
+    wifi: null,
+    fetchedAt: null,
+    error: null,
+  },
 };
 
 export function setLastError(value) {

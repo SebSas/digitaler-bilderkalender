@@ -443,15 +443,68 @@
       position: absolute;
       top: 14px;
       left: 14px;
-      padding: 12px;
-      border-radius: 14px;
-      background: rgba(0,0,0,.55);
-      border: 1px solid rgba(255,255,255,.12);
-      font-size: 12px;
-      line-height: 1.45;
+      width: min(600px, calc(100vw - 28px));
+      max-height: min(88vh, 760px);
+      overflow: auto;
+      padding: 14px;
+      border-radius: 16px;
+      background: rgba(0,0,0,.62);
+      border: 1px solid rgba(255,255,255,.16);
+      font-size: 14px;
+      line-height: 1.35;
       backdrop-filter: blur(8px);
       z-index: 30;
     }
+
+    .debug-title {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .debug-actions { margin-bottom: 10px; }
+
+    .debug-sync-btn {
+      padding: 7px 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,.22);
+      background: rgba(255,255,255,.12);
+      color: #fff;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .debug-sync-btn:disabled { opacity: .6; cursor: default; }
+
+    .debug-section + .debug-section {
+      margin-top: 10px;
+      padding-top: 9px;
+      border-top: 1px solid rgba(255,255,255,.12);
+    }
+
+    .debug-section-title {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .4px;
+      text-transform: uppercase;
+      opacity: .88;
+      margin-bottom: 6px;
+    }
+
+    .debug-grid {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      column-gap: 12px;
+      row-gap: 4px;
+      align-items: start;
+    }
+
+    .debug-key {
+      opacity: .72;
+      white-space: nowrap;
+    }
+
+    .debug-value { word-break: break-word; }
 
     .secretTapZone {
       position: absolute;

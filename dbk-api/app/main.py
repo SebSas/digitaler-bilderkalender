@@ -217,10 +217,24 @@ def _run_command(cmd: List[str], timeout_s: int = 35) -> Tuple[int, str]:
 
 def _read_cpu_temp_c() -> Optional[float]:
     """Read CPU temp from sysfs (works if /sys is mounted into the container)."""
-    p = Path("/sys/class/thermal/thermal_zone0/temp")
-    if not p.exists():
-        return None
-    return int(p.read_text().strip()) / 1000.0
+    candidates: List[Path] = [Path("/sys/class/thermal/thermal_zone0/temp")]
+    thermal_root = Path("/sys/class/thermal")
+    if thermal_root.exists():
+        for p in sorted(thermal_root.glob("thermal_zone*/temp")):
+            if p not in candidates:
+                candidates.append(p)
+
+    for p in candidates:
+        if not p.exists():
+            continue
+        try:
+            raw = p.read_text().strip()
+            value = float(raw)
+            # Most sysfs sensors report milli-Celsius.
+            return (value / 1000.0) if value > 200 else value
+        except Exception:
+            continue
+    return None
 
 
 def _read_uptime_s() -> Optional[float]:
@@ -229,6 +243,118 @@ def _read_uptime_s() -> Optional[float]:
     if not p.exists():
         return None
     return float(p.read_text().split()[0])
+
+
+def _read_default_route_iface() -> Optional[str]:
+    p = Path("/proc/net/route")
+    if not p.exists():
+        return None
+    try:
+        lines = p.read_text().splitlines()
+        for line in lines[1:]:
+            cols = line.split()
+            if len(cols) < 4:
+                continue
+            iface, destination, flags_hex = cols[0], cols[1], cols[3]
+            if destination != "00000000":
+                continue
+            try:
+                if int(flags_hex, 16) & 0x2:
+                    return iface
+            except Exception:
+                return iface
+    except Exception:
+        return None
+    return None
+
+
+def _read_wireless_stats(iface: str) -> Dict[str, Optional[float]]:
+    p = Path("/proc/net/wireless")
+    if not p.exists():
+        return {"link_quality_pct": None, "signal_dbm": None}
+    try:
+        for line in p.read_text().splitlines():
+            if ":" not in line:
+                continue
+            left, right = line.split(":", 1)
+            if left.strip() != iface:
+                continue
+            cols = right.split()
+            if len(cols) < 3:
+                break
+            link = float(cols[1].rstrip("."))
+            level = float(cols[2].rstrip("."))
+            link_pct = round(max(0.0, min(100.0, (link / 70.0) * 100.0)), 1)
+            return {"link_quality_pct": link_pct, "signal_dbm": level}
+    except Exception:
+        return {"link_quality_pct": None, "signal_dbm": None}
+    return {"link_quality_pct": None, "signal_dbm": None}
+
+
+def _read_wifi_status() -> Dict[str, object]:
+    net_root = Path("/sys/class/net")
+    default_iface = _read_default_route_iface()
+    if not net_root.exists():
+        return {
+            "status": "unavailable",
+            "interface": None,
+            "interfaces": [],
+            "operstate": None,
+            "default_route_iface": default_iface,
+            "link_quality_pct": None,
+            "signal_dbm": None,
+        }
+
+    wifi_ifaces: List[str] = []
+    try:
+        for iface_path in sorted(net_root.iterdir()):
+            name = iface_path.name
+            if name == "lo":
+                continue
+            if (iface_path / "wireless").exists() or name.startswith("wl"):
+                wifi_ifaces.append(name)
+    except Exception:
+        wifi_ifaces = []
+
+    if not wifi_ifaces:
+        return {
+            "status": "unavailable",
+            "interface": None,
+            "interfaces": [],
+            "operstate": None,
+            "default_route_iface": default_iface,
+            "link_quality_pct": None,
+            "signal_dbm": None,
+        }
+
+    iface = wifi_ifaces[0]
+    operstate: Optional[str] = None
+    try:
+        operstate = (net_root / iface / "operstate").read_text().strip()
+    except Exception:
+        operstate = None
+
+    stats = _read_wireless_stats(iface)
+    link_pct = stats.get("link_quality_pct")
+    signal_dbm = stats.get("signal_dbm")
+
+    connected = False
+    if operstate == "up":
+        connected = True
+    if isinstance(link_pct, (int, float)) and link_pct > 0:
+        connected = True
+    if default_iface and default_iface == iface:
+        connected = True
+
+    return {
+        "status": "connected" if connected else "disconnected",
+        "interface": iface,
+        "interfaces": wifi_ifaces,
+        "operstate": operstate,
+        "default_route_iface": default_iface,
+        "link_quality_pct": link_pct,
+        "signal_dbm": signal_dbm,
+    }
 
 
 def _now_iso() -> str:
@@ -554,10 +680,11 @@ def _run_shutdown_worker() -> None:
 
 @app.get("/api/system")
 def system_info() -> Dict[str, object]:
-    """Basic system info for the kiosk UI (temp + uptime)."""
+    """Basic system info for the kiosk UI (temp + uptime + wifi)."""
     return {
         "temp_c": _read_cpu_temp_c(),
         "uptime_s": _read_uptime_s(),
+        "wifi": _read_wifi_status(),
         "ts": int(time.time()),
     }
 
