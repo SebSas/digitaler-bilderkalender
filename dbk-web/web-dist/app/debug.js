@@ -47,6 +47,24 @@ function fmtWifiSignal(wifi) {
   return dbm || pct || "-";
 }
 
+function fmtBytes(value) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return "-";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let n = value;
+  let idx = 0;
+  while (n >= 1024 && idx < units.length - 1) {
+    n /= 1024;
+    idx += 1;
+  }
+  return `${n.toFixed(idx === 0 ? 0 : 1)} ${units[idx]}`;
+}
+
+function fmtBoolean(value) {
+  if (value === true) return "yes";
+  if (value === false) return "no";
+  return "-";
+}
+
 function sectionMarkup(title, rows) {
   const cells = rows.map(([k, v]) => (
     `<div class="debug-key">${esc(k)}</div><div class="debug-value">${esc(v)}</div>`
@@ -78,9 +96,17 @@ async function refreshSystemInfo() {
   systemFetchInFlight = true;
   try {
     const data = await fetchJsonWithTimeout("/api/system", 5000);
+    const wifi = (data && typeof data === "object" && data.wifi && typeof data.wifi === "object")
+      ? data.wifi
+      : { status: "unavailable", reason: "api_missing_wifi_field" };
+    const tailscale = (data && typeof data === "object" && data.tailscale && typeof data.tailscale === "object")
+      ? data.tailscale
+      : { status: "unavailable", error: "api_missing_tailscale_field" };
     state.system = {
       ...state.system,
       ...data,
+      wifi,
+      tailscale,
       status: "ok",
       fetchedAt: new Date().toISOString(),
       error: null,
@@ -142,6 +168,7 @@ export function renderDebug(extra) {
   const current = state.images[state.index] || {};
   const system = state.system || {};
   const wifi = system.wifi || null;
+  const tailscale = system.tailscale || null;
   const apiBaseLabel = API_BASE ? API_BASE : "same-origin";
   const imgASrc = (els.imgA && els.imgA.currentSrc) ? els.imgA.currentSrc : (els.imgA?.src || "-");
   const imgBSrc = (els.imgB && els.imgB.currentSrc) ? els.imgB.currentSrc : (els.imgB?.src || "-");
@@ -164,12 +191,32 @@ export function renderDebug(extra) {
     sectionMarkup("System", [
       ["temperature", fmtTemp(system.temp_c)],
       ["uptime", fmtUptime(system.uptime_s)],
-      ["Wi-Fi", fmtWifiStatus(wifi)],
-      ["Wi-Fi signal", fmtWifiSignal(wifi)],
-      ["default route iface", wifi?.default_route_iface || "-"],
-      ["wifi operstate", wifi?.operstate || "-"],
       ["system status", system.status || "-"],
       ["system error", system.error || "-"],
+    ]),
+    sectionMarkup("Wi-Fi", [
+      ["status", fmtWifiStatus(wifi)],
+      ["signal", fmtWifiSignal(wifi)],
+      ["interface", wifi?.interface || "-"],
+      ["interfaces", Array.isArray(wifi?.interfaces) ? wifi.interfaces.join(", ") || "-" : "-"],
+      ["operstate", wifi?.operstate || "-"],
+      ["carrier", (wifi?.carrier === 0 || wifi?.carrier === 1) ? String(wifi.carrier) : "-"],
+      ["default route iface", wifi?.default_route_iface || "-"],
+      ["reason", wifi?.reason || "-"],
+    ]),
+    sectionMarkup("Tailscale", [
+      ["status", tailscale?.status || "-"],
+      ["interface", tailscale?.interface || "-"],
+      ["operstate", tailscale?.operstate || "-"],
+      ["carrier", (tailscale?.carrier === 0 || tailscale?.carrier === 1) ? String(tailscale.carrier) : "-"],
+      ["backend state", tailscale?.backend_state || "-"],
+      ["online", fmtBoolean(tailscale?.online)],
+      ["hostname", tailscale?.hostname || "-"],
+      ["ips", Array.isArray(tailscale?.ips) ? tailscale.ips.join(", ") || "-" : "-"],
+      ["default route iface", tailscale?.default_route_iface || "-"],
+      ["rx", fmtBytes(tailscale?.rx_bytes)],
+      ["tx", fmtBytes(tailscale?.tx_bytes)],
+      ["error", tailscale?.error || "-"],
     ]),
     sectionMarkup("Footer", [
       ["expanded", state.footer?.expanded ? "yes" : "no"],
@@ -192,7 +239,7 @@ export function renderDebug(extra) {
     ]),
   ];
 
-  const button = "<button id=\"debugSyncBtn\" class=\"debug-sync-btn\" type=\"button\">Cache Update jetzt</button>";
+  const button = "<button id=\"debugSyncBtn\" class=\"debug-sync-btn\" type=\"button\">Sync Pictures</button>";
   els.debug.innerHTML =
     "<div class=\"debug-title\">Debug</div>" +
     "<div class=\"debug-actions\">" + button + "</div>" +

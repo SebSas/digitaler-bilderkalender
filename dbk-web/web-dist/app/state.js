@@ -25,6 +25,7 @@ export const state = {
     temp_c: null,
     uptime_s: null,
     wifi: null,
+    tailscale: null,
     fetchedAt: null,
     error: null,
   },

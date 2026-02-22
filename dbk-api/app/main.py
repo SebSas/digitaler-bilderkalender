@@ -3,6 +3,7 @@ import json
 import os
 import pillow_heif
 import re
+import shutil
 import subprocess
 import time
 import urllib.parse
@@ -291,6 +292,62 @@ def _read_wireless_stats(iface: str) -> Dict[str, Optional[float]]:
     return {"link_quality_pct": None, "signal_dbm": None}
 
 
+def _read_operstate(iface: str) -> Optional[str]:
+    p = Path("/sys/class/net") / iface / "operstate"
+    if not p.exists():
+        return None
+    try:
+        return p.read_text().strip()
+    except Exception:
+        return None
+
+
+def _read_carrier(iface: str) -> Optional[int]:
+    p = Path("/sys/class/net") / iface / "carrier"
+    if not p.exists():
+        return None
+    try:
+        return int(p.read_text().strip())
+    except Exception:
+        return None
+
+
+def _read_link_bytes(iface: str) -> Dict[str, Optional[int]]:
+    base = Path("/sys/class/net") / iface / "statistics"
+    rx_p = base / "rx_bytes"
+    tx_p = base / "tx_bytes"
+    rx = None
+    tx = None
+    try:
+        if rx_p.exists():
+            rx = int(rx_p.read_text().strip())
+    except Exception:
+        rx = None
+    try:
+        if tx_p.exists():
+            tx = int(tx_p.read_text().strip())
+    except Exception:
+        tx = None
+    return {"rx_bytes": rx, "tx_bytes": tx}
+
+
+def _read_wireless_ifaces_from_proc() -> List[str]:
+    p = Path("/proc/net/wireless")
+    if not p.exists():
+        return []
+    out: List[str] = []
+    try:
+        for line in p.read_text().splitlines():
+            if ":" not in line:
+                continue
+            iface = line.split(":", 1)[0].strip()
+            if iface:
+                out.append(iface)
+    except Exception:
+        return []
+    return out
+
+
 def _read_wifi_status() -> Dict[str, object]:
     net_root = Path("/sys/class/net")
     default_iface = _read_default_route_iface()
@@ -305,13 +362,19 @@ def _read_wifi_status() -> Dict[str, object]:
             "signal_dbm": None,
         }
 
+    proc_wireless = set(_read_wireless_ifaces_from_proc())
     wifi_ifaces: List[str] = []
     try:
         for iface_path in sorted(net_root.iterdir()):
             name = iface_path.name
             if name == "lo":
                 continue
-            if (iface_path / "wireless").exists() or name.startswith("wl"):
+            if (
+                (iface_path / "wireless").exists()
+                or name.startswith("wl")
+                or name.startswith("wlan")
+                or name in proc_wireless
+            ):
                 wifi_ifaces.append(name)
     except Exception:
         wifi_ifaces = []
@@ -325,14 +388,13 @@ def _read_wifi_status() -> Dict[str, object]:
             "default_route_iface": default_iface,
             "link_quality_pct": None,
             "signal_dbm": None,
+            "carrier": None,
+            "reason": "no_wireless_interface_detected",
         }
 
     iface = wifi_ifaces[0]
-    operstate: Optional[str] = None
-    try:
-        operstate = (net_root / iface / "operstate").read_text().strip()
-    except Exception:
-        operstate = None
+    operstate = _read_operstate(iface)
+    carrier = _read_carrier(iface)
 
     stats = _read_wireless_stats(iface)
     link_pct = stats.get("link_quality_pct")
@@ -345,6 +407,8 @@ def _read_wifi_status() -> Dict[str, object]:
         connected = True
     if default_iface and default_iface == iface:
         connected = True
+    if carrier == 1:
+        connected = True
 
     return {
         "status": "connected" if connected else "disconnected",
@@ -354,7 +418,78 @@ def _read_wifi_status() -> Dict[str, object]:
         "default_route_iface": default_iface,
         "link_quality_pct": link_pct,
         "signal_dbm": signal_dbm,
+        "carrier": carrier,
+        "reason": None,
     }
+
+
+def _read_tailscale_status() -> Dict[str, object]:
+    default_iface = _read_default_route_iface()
+    net_root = Path("/sys/class/net")
+    iface: Optional[str] = None
+    if net_root.exists():
+        try:
+            for p in sorted(net_root.iterdir()):
+                if p.name.startswith("tailscale"):
+                    iface = p.name
+                    break
+        except Exception:
+            iface = None
+
+    operstate = _read_operstate(iface) if iface else None
+    carrier = _read_carrier(iface) if iface else None
+    traffic = _read_link_bytes(iface) if iface else {"rx_bytes": None, "tx_bytes": None}
+
+    result: Dict[str, object] = {
+        "status": "unavailable",
+        "interface": iface,
+        "operstate": operstate,
+        "carrier": carrier,
+        "default_route_iface": default_iface,
+        "rx_bytes": traffic["rx_bytes"],
+        "tx_bytes": traffic["tx_bytes"],
+        "backend_state": None,
+        "online": None,
+        "hostname": None,
+        "ips": [],
+        "error": None,
+    }
+
+    if iface:
+        result["status"] = "connected" if (operstate == "up" or carrier == 1) else "disconnected"
+
+    tailscale_bin = shutil.which("tailscale")
+    if not tailscale_bin:
+        return result
+
+    code, out = _run_command([tailscale_bin, "status", "--json"], timeout_s=5)
+    if code != 0:
+        result["error"] = out[:300]
+        return result
+
+    try:
+        payload = json.loads(out)
+    except Exception:
+        result["error"] = "cannot parse tailscale status json"
+        return result
+
+    backend_state = payload.get("BackendState")
+    self_data = payload.get("Self") if isinstance(payload.get("Self"), dict) else {}
+    ips = self_data.get("TailscaleIPs") if isinstance(self_data, dict) else []
+    hostname = self_data.get("HostName") if isinstance(self_data, dict) else None
+    online = self_data.get("Online") if isinstance(self_data, dict) else None
+
+    result["backend_state"] = backend_state
+    result["online"] = online
+    result["hostname"] = hostname
+    result["ips"] = ips if isinstance(ips, list) else []
+
+    if backend_state == "Running" and online is True:
+        result["status"] = "connected"
+    elif backend_state in {"Stopped", "NeedsLogin", "NoState"}:
+        result["status"] = "disconnected"
+
+    return result
 
 
 def _now_iso() -> str:
@@ -680,11 +815,12 @@ def _run_shutdown_worker() -> None:
 
 @app.get("/api/system")
 def system_info() -> Dict[str, object]:
-    """Basic system info for the kiosk UI (temp + uptime + wifi)."""
+    """Basic system info for the kiosk UI (temp + uptime + wifi + tailscale)."""
     return {
         "temp_c": _read_cpu_temp_c(),
         "uptime_s": _read_uptime_s(),
         "wifi": _read_wifi_status(),
+        "tailscale": _read_tailscale_status(),
         "ts": int(time.time()),
     }
 
