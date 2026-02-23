@@ -7,6 +7,7 @@ import { setLastError, state } from "./state.js";
 
 let swapId = 0;
 const fadeMs = 900;
+let landscapeSwapCounter = 0;
 
 function waitForImage(img) {
   if (img.decode) {
@@ -70,8 +71,9 @@ export function showImage(obj) {
   waitForImage(incoming).then(() => {
     if (thisSwap !== swapId) return;
     const isPortrait = incoming.naturalHeight > incoming.naturalWidth;
+    const useKenBurns = !isPortrait && ((landscapeSwapCounter++ % 2) === 0);
     incomingSlot.classList.toggle("portrait", isPortrait);
-    incoming.classList.toggle("kenburns", !isPortrait);
+    incoming.classList.toggle("kenburns", useKenBurns);
     incomingSlot.classList.add("show");
     outgoingSlot.classList.remove("show");
     const cleanupId = thisSwap;

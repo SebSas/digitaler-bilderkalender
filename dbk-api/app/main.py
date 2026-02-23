@@ -46,8 +46,11 @@ CACHE_DIR = Path(os.environ.get("DBK_CACHE_DIR", "/cache"))
 # "webp" is usually the best compromise for browser display + size.
 CACHE_FORMAT = os.environ.get("DBK_CACHE_FORMAT", "webp").lower()
 
-# Max edge length for full-screen images and thumbnails.
-CACHE_MAX_EDGE = int(os.environ.get("DBK_CACHE_MAX_EDGE", "1920"))
+# Max dimensions for full-screen images (fit inside this box).
+# DBK_CACHE_MAX_EDGE is kept as backward-compatible fallback for width.
+CACHE_MAX_WIDTH = int(os.environ.get("DBK_CACHE_MAX_WIDTH", os.environ.get("DBK_CACHE_MAX_EDGE", "1920")))
+CACHE_MAX_HEIGHT = int(os.environ.get("DBK_CACHE_MAX_HEIGHT", "1200"))
+# Max edge length for thumbnails.
 THUMB_MAX_EDGE = int(os.environ.get("DBK_THUMB_MAX_EDGE", "512"))
 
 # File extensions we consider as images in the album folder.
@@ -94,6 +97,9 @@ SHUTDOWN_STATE = {
     "attempts": [],
 }
 SHUTDOWN_LOCK = threading.Lock()
+_CPU_SNAPSHOT_LOCK = threading.Lock()
+_CPU_SNAPSHOT: Optional[Tuple[int, int]] = None
+FAN_STATUS_PATH = Path(os.environ.get("DBK_FAN_STATUS_PATH", "/cache/fan_status.json"))
 
 
 def _hash_path(p: Path) -> str:
@@ -109,18 +115,18 @@ def _ensure_dir(p: Path) -> None:
     p.mkdir(parents=True, exist_ok=True)
 
 
-def _resize(img: Image.Image, max_edge: int) -> Image.Image:
+def _resize_to_box(img: Image.Image, max_width: int, max_height: int) -> Image.Image:
     """
-    Resize an image so that its longest edge becomes max_edge,
-    preserving aspect ratio. If image is already small enough, no-op.
+    Resize an image so it fits into max_width x max_height, preserving
+    aspect ratio. If image is already small enough, no-op.
     """
     w, h = img.size
-    m = max(w, h)
-    if m <= max_edge:
+    if w <= max_width and h <= max_height:
         return img
 
-    scale = max_edge / float(m)
-    nw, nh = int(w * scale), int(h * scale)
+    scale = min(max_width / float(w), max_height / float(h))
+    nw = max(1, int(w * scale))
+    nh = max(1, int(h * scale))
     return img.resize((nw, nh), Image.LANCZOS)
 
 
@@ -131,14 +137,21 @@ def _cache_path(src: Path, kind: str) -> Path:
     """
     h = _hash_path(src)
     ext = "webp" if CACHE_FORMAT == "webp" else "jpg"
-    return CACHE_DIR / kind / f"{h}.{ext}"
+    if kind == "full":
+        # Keep dimension in path so cache is invalidated when target size changes.
+        bucket = f"full-{CACHE_MAX_WIDTH}x{CACHE_MAX_HEIGHT}"
+    elif kind == "thumb":
+        bucket = f"thumb-{THUMB_MAX_EDGE}"
+    else:
+        bucket = kind
+    return CACHE_DIR / bucket / f"{h}.{ext}"
 
 
-def _convert(src: Path, dst: Path, max_edge: int) -> None:
+def _convert(src: Path, dst: Path, max_width: int, max_height: int) -> None:
     """
     Convert album image to cached output format (WEBP/JPEG).
     - Converts to RGB (safe for web display)
-    - Resizes to max_edge
+    - Resizes to fit max_width x max_height
     - Writes to dst (creates folders as needed)
     """
     _ensure_dir(dst.parent)
@@ -148,7 +161,7 @@ def _convert(src: Path, dst: Path, max_edge: int) -> None:
         im = ImageOps.exif_transpose(im)
         # Normalize to RGB for consistent output.
         im = im.convert("RGB")
-        im = _resize(im, max_edge)
+        im = _resize_to_box(im, max_width, max_height)
 
         if CACHE_FORMAT == "webp":
             # WEBP: good size/quality for kiosk usage.
@@ -244,6 +257,162 @@ def _read_uptime_s() -> Optional[float]:
     if not p.exists():
         return None
     return float(p.read_text().split()[0])
+
+
+def _read_cpu_stat_snapshot() -> Optional[Tuple[int, int]]:
+    """Read idle/total jiffies from /proc/stat."""
+    p = Path("/proc/stat")
+    if not p.exists():
+        return None
+
+    try:
+        first_line = p.read_text().splitlines()[0]
+        if not first_line.startswith("cpu "):
+            return None
+        values = [int(v) for v in first_line.split()[1:]]
+        if len(values) < 4:
+            return None
+        idle = values[3] + (values[4] if len(values) > 4 else 0)
+        total = sum(values)
+        return idle, total
+    except Exception:
+        return None
+
+
+def _read_cpu_usage_pct() -> Optional[float]:
+    """Read CPU usage percentage from /proc/stat using delta between calls."""
+    global _CPU_SNAPSHOT
+    snapshot = _read_cpu_stat_snapshot()
+    if snapshot is None:
+        return None
+    idle, total = snapshot
+
+    with _CPU_SNAPSHOT_LOCK:
+        previous = _CPU_SNAPSHOT
+        _CPU_SNAPSHOT = (idle, total)
+
+    if previous is None:
+        # First call has no baseline. Sample once more shortly after so the UI gets
+        # a meaningful value immediately.
+        time.sleep(0.2)
+        second = _read_cpu_stat_snapshot()
+        if second is None:
+            return None
+        second_idle, second_total = second
+        with _CPU_SNAPSHOT_LOCK:
+            _CPU_SNAPSHOT = (second_idle, second_total)
+        prev_idle, prev_total = idle, total
+        idle, total = second_idle, second_total
+    else:
+        prev_idle, prev_total = previous
+
+    delta_total = total - prev_total
+    delta_idle = idle - prev_idle
+    if delta_total <= 0:
+        return None
+
+    usage = ((delta_total - delta_idle) / float(delta_total)) * 100.0
+    return round(max(0.0, min(100.0, usage)), 1)
+
+
+def _read_memory_usage() -> Dict[str, Optional[float]]:
+    """Read memory usage stats from /proc/meminfo."""
+    p = Path("/proc/meminfo")
+    if not p.exists():
+        return {
+            "total_bytes": None,
+            "used_bytes": None,
+            "available_bytes": None,
+            "used_pct": None,
+        }
+
+    values_kb: Dict[str, int] = {}
+    try:
+        for line in p.read_text().splitlines():
+            if ":" not in line:
+                continue
+            key, raw = line.split(":", 1)
+            parts = raw.strip().split()
+            if not parts:
+                continue
+            values_kb[key] = int(parts[0])
+    except Exception:
+        return {
+            "total_bytes": None,
+            "used_bytes": None,
+            "available_bytes": None,
+            "used_pct": None,
+        }
+
+    total_kb = values_kb.get("MemTotal")
+    available_kb = values_kb.get("MemAvailable")
+    if total_kb is None or available_kb is None or total_kb <= 0:
+        return {
+            "total_bytes": None if total_kb is None else total_kb * 1024,
+            "used_bytes": None,
+            "available_bytes": None if available_kb is None else available_kb * 1024,
+            "used_pct": None,
+        }
+
+    used_kb = max(0, total_kb - available_kb)
+    used_pct = round((used_kb / float(total_kb)) * 100.0, 1)
+    return {
+        "total_bytes": total_kb * 1024,
+        "used_bytes": used_kb * 1024,
+        "available_bytes": available_kb * 1024,
+        "used_pct": used_pct,
+    }
+
+
+def _read_fan_status() -> Dict[str, object]:
+    """Read fan control status written by host fan service."""
+    base = {
+        "status": "unavailable",
+        "duty_pct": None,
+        "cpu_temp_c": None,
+        "error": None,
+        "ts": None,
+    }
+
+    if not FAN_STATUS_PATH.exists():
+        base["error"] = "missing_status_file"
+        return base
+
+    try:
+        payload = json.loads(FAN_STATUS_PATH.read_text())
+    except Exception:
+        base["status"] = "error"
+        base["error"] = "invalid_status_json"
+        return base
+
+    if not isinstance(payload, dict):
+        base["status"] = "error"
+        base["error"] = "invalid_status_payload"
+        return base
+
+    status = payload.get("status")
+    if status in {"running", "stopped"}:
+        base["status"] = status
+    else:
+        base["status"] = "unknown"
+
+    duty = payload.get("duty_pct")
+    if isinstance(duty, (int, float)):
+        base["duty_pct"] = max(0.0, min(100.0, float(duty)))
+
+    temp_c = payload.get("cpu_temp_c")
+    if isinstance(temp_c, (int, float)):
+        base["cpu_temp_c"] = float(temp_c)
+
+    ts = payload.get("ts")
+    if isinstance(ts, (int, float)):
+        base["ts"] = int(ts)
+
+    err = payload.get("error")
+    if err is not None:
+        base["error"] = str(err)
+
+    return base
 
 
 def _read_default_route_iface() -> Optional[str]:
@@ -816,9 +985,15 @@ def _run_shutdown_worker() -> None:
 @app.get("/api/system")
 def system_info() -> Dict[str, object]:
     """Basic system info for the kiosk UI (temp + uptime + wifi + tailscale)."""
+    cpu_usage_pct = _read_cpu_usage_pct()
     return {
         "temp_c": _read_cpu_temp_c(),
         "uptime_s": _read_uptime_s(),
+        "cpu_usage_pct": cpu_usage_pct,
+        # Backward-compatible alias for clients expecting "consumption" naming.
+        "cpu_consumption_pct": cpu_usage_pct,
+        "memory": _read_memory_usage(),
+        "fan": _read_fan_status(),
         "wifi": _read_wifi_status(),
         "tailscale": _read_tailscale_status(),
         "ts": int(time.time()),
@@ -854,7 +1029,7 @@ def image_full(image_id: str):
     # Rebuild cache if missing or if source file changed since last conversion.
     if not dst.exists() or dst.stat().st_mtime < src.stat().st_mtime:
         try:
-            _convert(src, dst, CACHE_MAX_EDGE)
+            _convert(src, dst, CACHE_MAX_WIDTH, CACHE_MAX_HEIGHT)
         except UnidentifiedImageError:
             # File exists but cannot be decoded (corrupt or unsupported HEIC variant).
             raise HTTPException(status_code=422, detail=f"cannot decode image: {src.name}")
@@ -872,7 +1047,7 @@ def image_thumb(image_id: str):
 
     if not dst.exists() or dst.stat().st_mtime < src.stat().st_mtime:
         try:
-            _convert(src, dst, THUMB_MAX_EDGE)
+            _convert(src, dst, THUMB_MAX_EDGE, THUMB_MAX_EDGE)
         except UnidentifiedImageError:
             raise HTTPException(status_code=422, detail=f"cannot decode image: {src.name}")
 

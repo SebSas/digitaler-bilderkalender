@@ -72,7 +72,7 @@
       z-index: 1;
       opacity: 0;
       transition: opacity 400ms ease;
-      filter: blur(28px) saturate(1.05) brightness(0.95);
+      filter: blur(20px) saturate(1.04) brightness(0.95);
       transform: scale(1.12);
     }
 
@@ -85,11 +85,11 @@
 
     /* subtle premium zoom (Ken Burns light) */
     .img.kenburns {
-      animation: kenburns 18s ease-in-out forwards;
+      animation: kenburns 22s ease-in-out forwards;
     }
     @keyframes kenburns {
       0%   { transform: scale(1.02) translate3d(0,0,0); }
-      100% { transform: scale(1.08) translate3d(-1.5%, -1%, 0); }
+      100% { transform: scale(1.06) translate3d(-1.0%, -0.8%, 0); }
     }
 
     .footer {
@@ -108,7 +108,7 @@
       border-radius: 18px;
       background: rgba(10,16,28,.70);
       border: 1px solid rgba(255,255,255,.18);
-      backdrop-filter: blur(14px) saturate(1.05);
+      backdrop-filter: blur(10px) saturate(1.05);
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -217,7 +217,7 @@
       border-radius: 18px;
       background: rgba(10,16,28,.70);
       border: 1px solid rgba(255,255,255,.18);
-      backdrop-filter: blur(14px) saturate(1.05);
+      backdrop-filter: blur(10px) saturate(1.05);
       box-shadow: 0 20px 60px rgba(0,0,0,.60);
       display: grid;
       grid-template-columns: 1.2fr 1fr;
@@ -395,7 +395,7 @@
       border: 1px solid rgba(255,255,255,.10);
       font-size: 12px;
       opacity: .82;
-      backdrop-filter: blur(8px);
+      backdrop-filter: blur(6px);
       max-width: 60vw;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -412,7 +412,7 @@
       border: 1px solid rgba(255,255,255,.10);
       font-size: 12px;
       opacity: .75;
-      backdrop-filter: blur(8px);
+      backdrop-filter: blur(6px);
     }
 
     .overlay {
@@ -431,7 +431,7 @@
       padding: 22px;
       background: rgba(15, 22, 40, 0.72);
       border: 1px solid rgba(255,255,255,.12);
-      backdrop-filter: blur(12px);
+      backdrop-filter: blur(10px);
       box-shadow: 0 20px 60px rgba(0,0,0,.45);
     }
 
@@ -452,7 +452,7 @@
       border: 1px solid rgba(255,255,255,.16);
       font-size: 14px;
       line-height: 1.35;
-      backdrop-filter: blur(8px);
+      backdrop-filter: blur(6px);
       z-index: 30;
     }
 
@@ -600,7 +600,7 @@
 
   <script type="module" src="/app/main.js"></script>
   <script>
-    // Aggressively remove Google Translate UI if injected.
+    // Remove Google Translate UI if injected without a hot polling loop.
     (function() {
       function scrub() {
         try {
@@ -610,8 +610,20 @@
           document.documentElement.style.top = '0px';
         } catch (e) {}
       }
+
       scrub();
-      setInterval(scrub, 1000);
+      try {
+        var observer = new MutationObserver(function(mutations) {
+          for (var i = 0; i < mutations.length; i++) {
+            if (mutations[i].addedNodes && mutations[i].addedNodes.length) {
+              scrub();
+              break;
+            }
+          }
+        });
+        observer.observe(document.documentElement, { childList: true, subtree: true });
+      } catch (e) {}
+      setInterval(scrub, 30000);
     })();
   </script>
 </body>

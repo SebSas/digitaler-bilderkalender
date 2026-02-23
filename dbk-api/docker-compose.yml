@@ -6,7 +6,8 @@ services:
       - DBK_ALBUM_DIR=/album
       - DBK_CACHE_DIR=/cache
       - DBK_CACHE_FORMAT=webp
-      - DBK_CACHE_MAX_EDGE=1920
+      - DBK_CACHE_MAX_WIDTH=1920
+      - DBK_CACHE_MAX_HEIGHT=1200
       - DBK_THUMB_MAX_EDGE=512
     volumes:
       - /mnt/picstorage/picstorage-album/Digi Bilderkalender Ana:/album:ro

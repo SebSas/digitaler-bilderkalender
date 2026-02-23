@@ -59,6 +59,25 @@ function fmtBytes(value) {
   return `${n.toFixed(idx === 0 ? 0 : 1)} ${units[idx]}`;
 }
 
+function fmtPercent(value) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return "-";
+  return `${value.toFixed(1)}%`;
+}
+
+function fmtDutyPercent(value) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return "-";
+  return `${Math.round(value)}%`;
+}
+
+function fmtMemoryUsage(memory) {
+  if (!memory || typeof memory !== "object") return "-";
+  const used = fmtBytes(memory.used_bytes);
+  const total = fmtBytes(memory.total_bytes);
+  const pct = fmtPercent(memory.used_pct);
+  if (used === "-" || total === "-") return "-";
+  return `${used} / ${total} (${pct})`;
+}
+
 function fmtBoolean(value) {
   if (value === true) return "yes";
   if (value === false) return "no";
@@ -167,6 +186,7 @@ export function renderDebug(extra) {
   bindDebugHandlers();
   const current = state.images[state.index] || {};
   const system = state.system || {};
+  const fan = system.fan || null;
   const wifi = system.wifi || null;
   const tailscale = system.tailscale || null;
   const apiBaseLabel = API_BASE ? API_BASE : "same-origin";
@@ -177,6 +197,11 @@ export function renderDebug(extra) {
   const footerLocation = state.footer?.location
     ? `${state.footer.location.name || "-"}, ${state.footer.location.state || "-"}`
     : "-";
+  const cpuUsagePct = (typeof system.cpu_usage_pct === "number" && Number.isFinite(system.cpu_usage_pct))
+    ? system.cpu_usage_pct
+    : ((typeof system.cpu_consumption_pct === "number" && Number.isFinite(system.cpu_consumption_pct))
+      ? system.cpu_consumption_pct
+      : null);
 
   const sections = [
     sectionMarkup("Slideshow", [
@@ -190,6 +215,10 @@ export function renderDebug(extra) {
     ]),
     sectionMarkup("System", [
       ["temperature", fmtTemp(system.temp_c)],
+      ["cpu consumption", fmtPercent(cpuUsagePct)],
+      ["fan status", fan?.status || "-"],
+      ["fan duty", fmtDutyPercent(fan?.duty_pct)],
+      ["memory usage", fmtMemoryUsage(system.memory)],
       ["uptime", fmtUptime(system.uptime_s)],
       ["system status", system.status || "-"],
       ["system error", system.error || "-"],

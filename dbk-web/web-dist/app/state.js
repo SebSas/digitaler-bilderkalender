@@ -23,6 +23,8 @@ export const state = {
   system: {
     status: null,
     temp_c: null,
+    cpu_usage_pct: null,
+    memory: null,
     uptime_s: null,
     wifi: null,
     tailscale: null,

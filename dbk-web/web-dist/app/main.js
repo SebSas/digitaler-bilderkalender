@@ -81,6 +81,6 @@ window.addEventListener("touchend", (ev) => {
 }, { passive: true });
 
 updateClock(els);
-setInterval(() => updateClock(els), 1000);
+setInterval(() => updateClock(els), 15000);
 bootFooter();
 boot();
