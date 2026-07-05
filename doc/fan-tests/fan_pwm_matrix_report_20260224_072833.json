@@ -1,0 +1,193 @@
+{
+  "meta": {
+    "started": "2026-02-24 07:25:24",
+    "finished": "2026-02-24 07:28:33",
+    "en_gpio": 17,
+    "pwm_gpio": 18,
+    "hz": 25000,
+    "pwm_signal_inverted": false,
+    "enable_signal_inverted": true
+  },
+  "results": [
+    {
+      "case": {
+        "idx": 1,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": false,
+        "duty_percent": 0.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": false,
+      "comment": "",
+      "timestamp": "2026-02-24T07:25:37"
+    },
+    {
+      "case": {
+        "idx": 2,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": false,
+        "duty_percent": 10.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": false,
+      "comment": "",
+      "timestamp": "2026-02-24T07:25:45"
+    },
+    {
+      "case": {
+        "idx": 3,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": false,
+        "duty_percent": 25.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": false,
+      "comment": "",
+      "timestamp": "2026-02-24T07:25:53"
+    },
+    {
+      "case": {
+        "idx": 4,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": false,
+        "duty_percent": 50.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": false,
+      "comment": "",
+      "timestamp": "2026-02-24T07:26:05"
+    },
+    {
+      "case": {
+        "idx": 5,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": false,
+        "duty_percent": 80.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": false,
+      "comment": "",
+      "timestamp": "2026-02-24T07:26:14"
+    },
+    {
+      "case": {
+        "idx": 6,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": false,
+        "duty_percent": 100.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": false,
+      "comment": "",
+      "timestamp": "2026-02-24T07:26:20"
+    },
+    {
+      "case": {
+        "idx": 7,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": true,
+        "duty_percent": 0.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": false,
+      "comment": "",
+      "timestamp": "2026-02-24T07:26:28"
+    },
+    {
+      "case": {
+        "idx": 8,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": true,
+        "duty_percent": 10.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": false,
+      "comment": "",
+      "timestamp": "2026-02-24T07:26:35"
+    },
+    {
+      "case": {
+        "idx": 9,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": true,
+        "duty_percent": 25.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": false,
+      "comment": "",
+      "timestamp": "2026-02-24T07:26:41"
+    },
+    {
+      "case": {
+        "idx": 10,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": true,
+        "duty_percent": 50.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": true,
+      "comment": "Runs for about 3s shutsdown, starts up again (flickering)",
+      "timestamp": "2026-02-24T07:27:32"
+    },
+    {
+      "case": {
+        "idx": 11,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": true,
+        "duty_percent": 80.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": true,
+      "comment": "Runs, but still flickering",
+      "timestamp": "2026-02-24T07:28:09"
+    },
+    {
+      "case": {
+        "idx": 12,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": true,
+        "duty_percent": 100.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": true,
+      "comment": "Runs but flickering",
+      "timestamp": "2026-02-24T07:28:33"
+    }
+  ]
+}

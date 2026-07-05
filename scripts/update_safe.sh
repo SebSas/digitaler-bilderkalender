@@ -14,10 +14,10 @@ sudo cp -a /boot/firmware/cmdline.txt "$BK/cmdline.txt"
 sudo tar -C /etc -cpf "$BK/etc_systemd.tar" systemd/system
 
 # your kiosk/autostart
-tar -cpf "$BK/openbox_autostart.tar" -C /home/sebi .config/openbox/autostart
+sudo tar -cpf "$BK/openbox_autostart.tar" -C /home/sebi .config/openbox/autostart
 
 # docker compose dirs
-tar -cpf "$BK/dbk_docker.tar" -C /home/sebi docker/dbk-api docker/dbk-web
+sudo tar -cpf "$BK/dbk_docker.tar" -C /home/sebi docker/dbk-api docker/dbk-web
 
 echo "Backup done."
 echo "Running apt update/upgrade..."

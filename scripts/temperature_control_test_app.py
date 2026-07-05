@@ -13,7 +13,14 @@ def main():
   controller = None
 
   try:
-    controller = PwmFanControl()
+    # Use responsive settings for interactive/manual testing.
+    # Production anti-chatter timing is intentionally slower.
+    controller = PwmFanControl(
+      on_confirm_samples=1,
+      off_confirm_samples=1,
+      min_on_seconds=0.0,
+      min_off_seconds=0.0,
+    )
     print(f"PWM adapter in use: {controller.get_pwm_adapter_name()}")
     print("Manual fan test started. Enter temperatures like: 40 or 40,60,70")
     print("Press CTRL + C to terminate.")

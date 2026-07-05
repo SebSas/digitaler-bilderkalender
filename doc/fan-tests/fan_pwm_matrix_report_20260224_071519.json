@@ -1,0 +1,193 @@
+{
+  "meta": {
+    "started": "2026-02-24 07:11:38",
+    "finished": "2026-02-24 07:15:19",
+    "en_gpio": 17,
+    "pwm_gpio": 18,
+    "hz": 25000,
+    "pwm_signal_inverted": true,
+    "enable_signal_inverted": false
+  },
+  "results": [
+    {
+      "case": {
+        "idx": 1,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": false,
+        "duty_percent": 0.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": true,
+      "comment": "runns short time, stops, runs...",
+      "timestamp": "2026-02-24T07:12:24"
+    },
+    {
+      "case": {
+        "idx": 2,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": false,
+        "duty_percent": 10.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": true,
+      "comment": "stopping intervals are shorter",
+      "timestamp": "2026-02-24T07:13:02"
+    },
+    {
+      "case": {
+        "idx": 3,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": false,
+        "duty_percent": 25.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": true,
+      "comment": "runs, but same problem",
+      "timestamp": "2026-02-24T07:13:31"
+    },
+    {
+      "case": {
+        "idx": 4,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": false,
+        "duty_percent": 50.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": true,
+      "comment": "runs, same problem",
+      "timestamp": "2026-02-24T07:13:51"
+    },
+    {
+      "case": {
+        "idx": 5,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": false,
+        "duty_percent": 80.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": false,
+      "comment": "does not run, summing noise",
+      "timestamp": "2026-02-24T07:14:22"
+    },
+    {
+      "case": {
+        "idx": 6,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": false,
+        "duty_percent": 100.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": false,
+      "comment": "",
+      "timestamp": "2026-02-24T07:14:34"
+    },
+    {
+      "case": {
+        "idx": 7,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": true,
+        "duty_percent": 0.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": false,
+      "comment": "",
+      "timestamp": "2026-02-24T07:14:41"
+    },
+    {
+      "case": {
+        "idx": 8,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": true,
+        "duty_percent": 10.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": false,
+      "comment": "",
+      "timestamp": "2026-02-24T07:14:48"
+    },
+    {
+      "case": {
+        "idx": 9,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": true,
+        "duty_percent": 25.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": false,
+      "comment": "",
+      "timestamp": "2026-02-24T07:14:56"
+    },
+    {
+      "case": {
+        "idx": 10,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": true,
+        "duty_percent": 50.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": false,
+      "comment": "",
+      "timestamp": "2026-02-24T07:15:05"
+    },
+    {
+      "case": {
+        "idx": 11,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": true,
+        "duty_percent": 80.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": false,
+      "comment": "",
+      "timestamp": "2026-02-24T07:15:12"
+    },
+    {
+      "case": {
+        "idx": 12,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": true,
+        "duty_percent": 100.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": false,
+      "comment": "",
+      "timestamp": "2026-02-24T07:15:19"
+    }
+  ]
+}

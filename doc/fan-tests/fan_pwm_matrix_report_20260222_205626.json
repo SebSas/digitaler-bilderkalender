@@ -1,0 +1,193 @@
+{
+  "meta": {
+    "started": "2026-02-22 20:51:42",
+    "finished": "2026-02-22 20:56:26",
+    "en_gpio": 17,
+    "pwm_gpio": 18,
+    "hz": 25000,
+    "pwm_signal_inverted": true,
+    "enable_signal_inverted": false
+  },
+  "results": [
+    {
+      "case": {
+        "idx": 1,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": false,
+        "duty_percent": 0.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": true,
+      "comment": "Duty cycle 100%",
+      "timestamp": "2026-02-22T20:52:32"
+    },
+    {
+      "case": {
+        "idx": 2,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": false,
+        "duty_percent": 10.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": true,
+      "comment": "Duty cycle 90%",
+      "timestamp": "2026-02-22T20:53:05"
+    },
+    {
+      "case": {
+        "idx": 3,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": false,
+        "duty_percent": 25.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": true,
+      "comment": "Duty cycle 75%",
+      "timestamp": "2026-02-22T20:53:27"
+    },
+    {
+      "case": {
+        "idx": 4,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": false,
+        "duty_percent": 50.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": true,
+      "comment": "Duty cycle 50%",
+      "timestamp": "2026-02-22T20:53:49"
+    },
+    {
+      "case": {
+        "idx": 5,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": false,
+        "duty_percent": 80.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": true,
+      "comment": "Duty cycle 20%, L\u00fcfter dreht nicht, summt",
+      "timestamp": "2026-02-22T20:54:43"
+    },
+    {
+      "case": {
+        "idx": 6,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": false,
+        "duty_percent": 100.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": false,
+      "comment": "",
+      "timestamp": "2026-02-22T20:55:15"
+    },
+    {
+      "case": {
+        "idx": 7,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": true,
+        "duty_percent": 0.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": false,
+      "comment": "",
+      "timestamp": "2026-02-22T20:55:26"
+    },
+    {
+      "case": {
+        "idx": 8,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": true,
+        "duty_percent": 10.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": false,
+      "comment": "",
+      "timestamp": "2026-02-22T20:55:43"
+    },
+    {
+      "case": {
+        "idx": 9,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": true,
+        "duty_percent": 25.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": false,
+      "comment": "",
+      "timestamp": "2026-02-22T20:55:53"
+    },
+    {
+      "case": {
+        "idx": 10,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": true,
+        "duty_percent": 50.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": false,
+      "comment": "",
+      "timestamp": "2026-02-22T20:56:04"
+    },
+    {
+      "case": {
+        "idx": 11,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": true,
+        "duty_percent": 80.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": false,
+      "comment": "",
+      "timestamp": "2026-02-22T20:56:11"
+    },
+    {
+      "case": {
+        "idx": 12,
+        "en_gpio": 17,
+        "pwm_gpio": 18,
+        "hz": 25000,
+        "en_enabled": true,
+        "duty_percent": 100.0,
+        "duration_s": 4.0,
+        "note": ""
+      },
+      "running": false,
+      "comment": "",
+      "timestamp": "2026-02-22T20:56:26"
+    }
+  ]
+}
