@@ -9,6 +9,33 @@ let swapId = 0;
 const fadeMs = 900;
 let landscapeSwapCounter = 0;
 
+// Ken Burns via JS stepping instead of a CSS animation: the zoom is so slow
+// (4% over 22s) that ~12fps is visually identical to 60fps, but the
+// compositor can idle between steps (60fps CSS kept the Pi at ~25% total CPU).
+const kenburnsMs = 22000;
+const kenburnsFps = 8;
+let kenburnsTimer = null;
+
+function stopKenBurns() {
+  if (kenburnsTimer) {
+    clearInterval(kenburnsTimer);
+    kenburnsTimer = null;
+  }
+}
+
+function startKenBurns(el) {
+  stopKenBurns();
+  const start = performance.now();
+  kenburnsTimer = setInterval(() => {
+    const t = Math.min(1, (performance.now() - start) / kenburnsMs);
+    const e = t < 0.5 ? 2 * t * t : 1 - ((-2 * t + 2) ** 2) / 2; // ease-in-out
+    el.style.transform =
+      `scale(${(1.02 + 0.04 * e).toFixed(4)}) ` +
+      `translate3d(${(-1.0 * e).toFixed(3)}%, ${(-0.8 * e).toFixed(3)}%, 0)`;
+    if (t >= 1) stopKenBurns();
+  }, Math.round(1000 / kenburnsFps));
+}
+
 function waitForImage(img) {
   if (img.decode) {
     return img.decode().catch(() => {});
@@ -62,6 +89,7 @@ export function showImage(obj) {
   const thisSwap = ++swapId;
 
   incoming.classList.remove("kenburns");
+  incoming.style.transform = "";
   incomingSlot.classList.remove("show", "portrait");
 
   incoming.src = url;
@@ -74,6 +102,11 @@ export function showImage(obj) {
     const useKenBurns = !isPortrait && ((landscapeSwapCounter++ % 2) === 0);
     incomingSlot.classList.toggle("portrait", isPortrait);
     incoming.classList.toggle("kenburns", useKenBurns);
+    if (useKenBurns) {
+      startKenBurns(incoming);
+    } else {
+      stopKenBurns();
+    }
     incomingSlot.classList.add("show");
     outgoingSlot.classList.remove("show");
     const cleanupId = thisSwap;
@@ -81,6 +114,7 @@ export function showImage(obj) {
       if (cleanupId !== swapId) return;
       outgoingSlot.classList.remove("portrait");
       outgoing.classList.remove("kenburns");
+      outgoing.style.transform = "";
     }, fadeMs + 50);
   });
 

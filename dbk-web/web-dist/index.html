@@ -83,14 +83,11 @@
 
     .slot.portrait .img-bg { opacity: 1; }
 
-    /* subtle premium zoom (Ken Burns light) */
-    .img.kenburns {
-      animation: kenburns 22s ease-in-out forwards;
-    }
-    @keyframes kenburns {
-      0%   { transform: scale(1.02) translate3d(0,0,0); }
-      100% { transform: scale(1.06) translate3d(-1.0%, -0.8%, 0); }
-    }
+    /* subtle premium zoom (Ken Burns light) — driven by JS at low fps
+       (app/slideshow.js). A 60fps CSS animation kept the compositor busy
+       full-time (~25% total CPU on the Pi 4); the zoom is slow enough that
+       ~12fps looks identical. */
+    .img.kenburns { will-change: transform; }
 
     .footer {
       position: absolute;
