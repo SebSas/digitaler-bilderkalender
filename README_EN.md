@@ -1,34 +1,43 @@
 # Digital Picture Calendar (DBK)
 
 A kiosk-based digital picture calendar on a Raspberry Pi 4 with a Waveshare touch display.
-The Pi automatically starts a fullscreen web view (Chromium Kiosk). The frontend is static (Nginx),
-the backend (FastAPI) provides the image list and renders images as WebP (including cache).
+The Pi automatically starts a fullscreen web view (Chromium kiosk). The frontend is static
+(Nginx), the backend (FastAPI) serves the image list, renders images as WebP (incl. cache)
+and provides additional data (system telemetry, weather, holidays, geocoding).
+
+> **Documentation concept:** This README describes concept, design, installation and
+> operation. Project status, open issues and tasks are **not** maintained here but in the
+> personal knowledge base.
+
+Architecture docs: [doc/dbk_c4_level3_components.md](doc/dbk_c4_level3_components.md)
 
 ---
 
-## Status / Goals
+## Concept
 
-**Current state**
-- Kiosk runs: images change automatically (currently 3 images)
-- `dbk-web` reverse-proxied `/api/*` to `dbk-api`
-- Healthcheck + auto-restart in the Openbox autostart improved stability after cold boot / unplugging
-
-**Goal**
-- Modular web code (extensible GUI)
-- Clean repo structure (monorepo), well documented
-- GitHub as backup/versioning
+- **Source of truth** is a shared Immich album on the home server (dedicated Immich user).
+  Photos are added to the album from iOS devices.
+- The DBK client (this Pi) **mirrors the album as a local snapshot** and displays it —
+  the display stays stable, fast and independent of network/server availability.
+- Client ↔ server connectivity via **Tailscale** (VPN/MagicDNS).
+- Touch-only operation: fullscreen slideshow, footer with clock/date/weather, debug overlay
+  via **tapping 5× in the top-left corner**, sync and shutdown functions in the GUI.
+- Designed for **24/7 operation**: as little energy consumption as possible while keeping
+  a modern UI.
 
 ---
 
 ## Hardware
 
 - Raspberry Pi 4
-- Display: Waveshare 10.1EP-CAPLCD (Touch, 1920×1200)
+- Display: Waveshare 10.1EP-CAPLCD (touch, 1920×1200)
   Wiki: https://www.waveshare.com/wiki/10.1EP-CAPLCD
+- Active cooling (design): Noctua 4-pin PWM fan (PWM: BCM18, enable/power gate: BCM17)
+- 3D-printed case / mount
 - Storage mount:
-  - `/mnt/picstorage`
+  - `/mnt/picstorage` (automount)
   - Album folder: `/mnt/picstorage/picstorage-album/Digi Bilderkalender Ana/`
-  - Images currently: `.HEIC` (backend must handle/convert these)
+  - Images include `.HEIC` (backend converts to WebP)
 
 ---
 
@@ -36,14 +45,15 @@ the backend (FastAPI) provides the image list and renders images as WebP (includ
 
 - Raspberry Pi OS 64-bit (Trixie Lite)
 - Graphics: Xorg + Openbox
-- Browser: Chromium in Kiosk mode
-- Note: Display detection can sometimes be flaky after cold boot (so use a robust HDMI config + kiosk healthcheck)
+- Browser: Chromium in kiosk mode
+- Note: display detection can be flaky after a cold start (hence the robust HDMI config +
+  kiosk health check)
 
 ---
 
 ## Display / HDMI Configuration
 
-Current relevant entries in `/boot/firmware/config.txt`:
+Relevant entries in `/boot/firmware/config.txt`:
 
 ```ini
 dtoverlay=vc4-kms-v3d
@@ -57,190 +67,162 @@ hdmi_cvt=1920 1200 60 6 0 0 0
 config_hdmi_boost=7
 ```
 
-Check kernel for HDMI connected:
+Kernel check whether HDMI is connected:
 
 ```bash
 for f in /sys/class/drm/*HDMI*/status; do echo "$f: $(cat "$f")"; done
-```
-
-Example output (ok):
-
-```
-/sys/class/drm/card1-HDMI-A-1/status: connected
 ```
 
 ---
 
 ## Architecture
 
+Client/server system (diagrams: `doc/dbk_c4_level3_components.md`):
+
 ### Components
 - **dbk-web** (Nginx)
   - static frontend from `dbk-web/web-dist/`
-  - Reverse proxy: `/api/*` → `http://dbk-api:8090/api/*`
+  - reverse proxy: `/api/*` → `http://dbk-api:8090/api/*` (same-origin for the UI, no CORS)
 - **dbk-api** (FastAPI + Uvicorn)
-  - API endpoints:
-    - `/api/health`
-    - `/api/images`
-    - `/api/image/<id>`
-  - Reads album under `/album`
-  - Renders/caches WebP under `/cache`
+  - Images: `/api/images`, `/api/image/{id}`, `/api/thumb/{id}`
+  - System: `/api/health`, `/api/system`
+  - Footer data: `/api/weather`, `/api/holidays`, `/api/geocode`
+  - Admin: `/api/admin/immich-sync` (GET/POST), `/api/admin/shutdown` (GET/POST)
+  - Reads the album under `/album`, renders/caches WebP under `/cache`
+    (max 1920×1200, thumbs max 512 px)
 
 ### Ports
 - Web (Nginx): `http://127.0.0.1:8080`
 - API (Uvicorn): `http://127.0.0.1:8090`
-- Health via Web (reverse proxied): `http://127.0.0.1:8080/api/health`
+- Health via web (reverse proxied): `http://127.0.0.1:8080/api/health`
 
 ---
 
-## Repo Structure (Monorepo)
+## Repo Structure (mono-repo)
 
 ```
 digitaler-bilderkalender/
-├─ docker-compose.yml          # Root compose (orchestrates web+api)
 ├─ README.md
 ├─ .gitignore
+├─ doc/
+│  ├─ dbk_c4_level3_components.md   # architecture (C4 level 3)
+│  └─ fan-tests/                    # PWM matrix test reports (JSON)
 ├─ dbk-web/
-│  ├─ docker-compose.yml       # historical / possibly removed later
-│  ├─ nginx.conf               # Nginx server block
-│  └─ web-dist/
-│     └─ index.html            # static frontend
+│  ├─ docker-compose.yml
+│  ├─ nginx.conf
+│  └─ web-dist/                     # static frontend (deployment artifact)
 ├─ dbk-api/
-│  ├─ docker-compose.yml       # historical / possibly removed later
+│  ├─ docker-compose.yml
 │  ├─ Dockerfile
-│  ├─ app/
-│  │  └─ main.py               # FastAPI entry
-│  └─ cache/                   # generated (ignored by git)
-└─ scripts/                    # optional helper scripts
+│  ├─ app/main.py                   # FastAPI entry
+│  └─ cache/                        # generated (ignored by git)
+└─ scripts/                         # operational/helper scripts (see working model)
 ```
 
-**Important**
-- `dbk-api/cache/` is generated and is **not** versioned in Git.
+**Important:** `dbk-api/cache/` is generated and **not** versioned.
+
+---
+
+## Working Model: Production System vs. Git Backup
+
+**The system itself is production** — development and operation happen directly in
+`~/docker/` (containers) and `~/scripts/` (operational scripts). **This repo is backup/
+versioning only**; nothing is deployed or started from the repo.
+
+| Production (source) | Backup in repo | Sync direction: production → repo |
+| --- | --- | --- |
+| `~/docker/dbk-api/`, `~/docker/dbk-web/` | `dbk-api/`, `dbk-web/` | `scripts/sync_docker_to_git.sh` (rsync, `DRY_RUN=1` supported) |
+| `~/scripts/` | `scripts/` | copy **manually** (not covered by the sync script!) |
+
+> After changing the production system, remember to sync the changes into the repo and commit.
+
+---
+
+## systemd Services
+
+| Service | Purpose |
+| --- | --- |
+| `dbk-stack.service` | starts the Docker stack (`~/docker/dbk-api` + `~/docker/dbk-web`), deterministically triggers the picstorage automount first |
+| `dbk-fan.service` | fan control: `temperature_control_app.py --poll-seconds 30`, requires `pigpiod.service`; clean stop via `fan_off.py` |
+| `dbk-postboot-check.service` | post-boot sanity check (backend + display), runs with `DISPLAY=:0` |
+
+```bash
+systemctl status dbk-stack dbk-fan dbk-postboot-check
+journalctl -u dbk-fan --since -1d
+```
+
+---
+
+## Fan Control (design)
+
+Core: `scripts/pwm_fan_control.py`, app: `temperature_control_app.py` (production: `~/scripts/`).
+
+**Noctua requirements (white paper):** target PWM frequency 25 kHz (21–28 kHz allowed),
+**non-inverted** signal, 100% duty = max speed. The fan's PWM input is internally pulled up
+to 3.3/5 V; **open-collector drivers are not recommended** (distorted signals → erratic
+behavior) — the driver stage must be CMOS/push-pull style.
+Tacho: open collector, 2 pulses per revolution → `RPM = f × 60 / 2`.
+
+**Software design:**
+- Hardware PWM via pigpio on BCM18 at 25 kHz, fallback: software PWM (RPi.GPIO, 1 kHz)
+- Enable signal inverted (power gate on BCM17)
+- Hysteresis: ON at 60 °C, OFF below 52 °C — with confirmation samples (2× ON / 3× OFF)
+- Anti-chatter: min. 300 s on / 120 s off, start boost 70% for 1.2 s, minimum running duty 50%
+- Duty curve: < 75 °C → 50%, < 82 °C → 70%, else 100%
+- Status export to `~/docker/dbk-api/cache/fan_status.json` → GUI debug overlay
+  (shows the software state, not necessarily a physically spinning fan)
+- Warns when `snd_bcm2835` is active (conflicts with hardware PWM on BCM18 → `dtparam=audio=off`)
+
+**Test tools:** `fan_pwm_matrix_test.py` (interactive test matrix across inversion/duty
+combinations, reports in `doc/fan-tests/`), `watch_gpio17.py` (observe the enable pin),
+`fan_off.py` (deterministic fan off).
 
 ---
 
 ## Docker Setup
 
-### Start services (in repo root)
-```bash
-docker compose up -d --build
-docker compose ps
-```
+Runs from `~/docker/` (not from the repo):
 
-### Stop services
 ```bash
-docker compose down
-```
+# Normal operation: via systemd
+sudo systemctl restart dbk-stack
 
-### Logs
-```bash
-docker compose logs -f --tail=200
-```
+# Manual (per service)
+cd ~/docker/dbk-api && docker compose up -d --build
+cd ~/docker/dbk-web && docker compose up -d
 
-### Healthcheck
-```bash
+# Logs / health
+docker logs --tail=200 dbk-api
 curl -s http://127.0.0.1:8080/api/health; echo
 ```
 
----
+Both services join the external Docker network `dbk-net`:
 
-## Root docker-compose.yml
+```bash
+docker network create dbk-net   # if it does not exist yet
+```
 
-The root compose orchestrates both services. Relevant mounts:
-
-- Album (read-only):
-  `/mnt/picstorage/picstorage-album/Digi Bilderkalender Ana:/album:ro`
-- Cache (read-write, local in repo):
-  `./dbk-api/cache:/cache`
-- System info (read-only):
-  - `/sys:/sys:ro`
-  - `/proc:/proc:ro`
-
-Network:
-- external Docker network `dbk-net` (must exist)
-
-> Note: If `dbk-net` does not yet exist:
-> ```bash
-> docker network create dbk-net
-> ```
+Relevant mounts (dbk-api): album read-only, `./cache:/cache`, `/sys` + `/proc` read-only
+(for telemetry), `~/immichdl` (sync), Docker socket (admin functions).
 
 ---
 
 ## Nginx Reverse Proxy
 
-Current `dbk-web/nginx.conf`:
-
-```nginx
-server {
-  listen 80;
-
-  location / {
-    root   /usr/share/nginx/html;
-    index  index.html;
-    try_files $uri $uri/ /index.html;
-  }
-
-  location /api/ {
-    proxy_pass http://dbk-api:8090/api/;
-    proxy_http_version 1.1;
-
-    proxy_set_header Host              $host;
-    proxy_set_header X-Real-IP         $remote_addr;
-    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-  }
-}
-```
+`dbk-web/nginx.conf`: static root + `location /api/` → `proxy_pass http://dbk-api:8090/api/;`
+(same-origin, no CORS needed).
 
 ---
 
 ## Kiosk Mode (Openbox + Chromium)
 
-Autostart file:
-- `~/.config/openbox/autostart`
+Autostart file: `~/.config/openbox/autostart`
 
-### Goals
-- Hide mouse cursor
-- Disable DPMS / screen blanking (robust, multiple attempts)
-- Start Chromium in kiosk mode
-- Healthcheck: if stack is unreachable → kill Chromium → restart
-
-### Current autostart (robust + healthcheck)
-```bash
-# Hide mouse cursor quickly
-unclutter -idle 0.1 -root &
-
-# Disable screen blanking / power management (robust)
-(
-  for i in 1 2 3 4 5; do
-    xset s off
-    xset -dpms
-    xset s noblank
-    sleep 1
-  done
-) >/tmp/dbk-xset.log 2>&1 &
-
-# Kiosk (auto-restart + health-check)
-(
-  while true; do
-    chromium --kiosk --noerrdialogs --disable-infobars       --check-for-update-interval=31536000       http://127.0.0.1:8080 &
-    CHR_PID=$!
-
-    # every 15s: if health fails -> restart chromium
-    while kill -0 "$CHR_PID" 2>/dev/null; do
-      if ! curl -fsS http://127.0.0.1:8080/api/health >/dev/null; then
-        kill "$CHR_PID" 2>/dev/null || true
-        sleep 2
-        kill -9 "$CHR_PID" 2>/dev/null || true
-        break
-      fi
-      sleep 15
-    done
-
-    wait "$CHR_PID" 2>/dev/null || true
-    sleep 2
-  done
-) >/tmp/dbk-kiosk.log 2>&1 &
-```
+- Hide mouse cursor (`unclutter`)
+- Robustly disable DPMS/blanking multiple times (`xset`)
+- Start Chromium in kiosk mode (dedicated profile `~/.config/chromium-kiosk`,
+  translate/updates/sync disabled)
+- Health check loop: `GET /api/health` every 15 s — on failure kill Chromium and restart
 
 Logs:
 ```bash
@@ -248,81 +230,49 @@ tail -n 200 /tmp/dbk-kiosk.log
 tail -n 200 /tmp/dbk-xset.log
 ```
 
+Helper scripts: `reset_chromium_kiosk.sh` (kiosk restart), `screenshot.sh` (screenshot of the
+running display into `~/temp/`), `dbk_reset.sh`, `update_safe.sh`.
+
 ---
 
 ## Typical Boot Problems & Troubleshooting
 
-### Symptom: Display black after cold boot / unplugging
-Checklist:
+### Symptom: black display after cold start / power cycling
 
-1) **Does the kernel detect the display?**
+1) **Kernel detects the display?**
 ```bash
 for f in /sys/class/drm/*HDMI*/status; do echo "$f: $(cat "$f")"; done
 ```
 
-2) **Is the stack reachable?**
+2) **Stack reachable?**
 ```bash
 curl -s http://127.0.0.1:8080/api/health; echo
 ```
 
-3) **Are Xorg/Openbox/Chromium running?**
+3) **Xorg/Openbox/Chromium running?**
 ```bash
 ps -ef | egrep -i "Xorg|openbox|chromium" | grep -v grep
 ```
 
-4) **Are Docker containers ok?**
+4) **Docker containers ok?**
 ```bash
 docker ps
 docker logs --tail=200 dbk-web
 docker logs --tail=200 dbk-api
 ```
 
+Additionally: `dbk_postboot_check.sh` runs automatically after boot
+(`dbk-postboot-check.service`).
+
 ### Symptom: 502 on `/api/*`
-This means: `dbk-web` is running, but upstream `dbk-api` was briefly unavailable or unreachable.
-- Check `dbk-api` logs
-- Check `docker ps`
-- Kiosk healthcheck handles this (Chromium will be restarted once health is good again)
-
----
-
-## Development Workflow (Content / Modularization)
-
-### Frontend
-- currently: `dbk-web/web-dist/index.html` (static)
-- Modularization idea:
-  - later `dbk-web/src/` (React or similar) + build to `web-dist/`
-  - `web-dist/` remains the deployment artifact for Nginx
-
-### Backend
-- `dbk-api/app/main.py`
-- future sensible structure:
-  - `app/routers/`
-  - `app/services/` (image discovery, HEIC decode, cache, etc.)
-  - `app/config.py` (env handling)
-
-### Cache
-- `dbk-api/cache/` is **generated**
-- can be deleted at any time:
-```bash
-rm -rf dbk-api/cache/*
-```
+`dbk-web` is running but upstream `dbk-api` was briefly unreachable → check logs.
+The kiosk health check covers this (Chromium restarts as soon as health is ok again).
 
 ---
 
 ## Git / GitHub
 
-- Monorepo is already initialized and pushed.
-- `.gitignore` contains `dbk-api/cache/` (cache stays local).
-- Recommended: a separate SSH key per device (Pi), so keys can be revoked individually.
-
----
-
-## Roadmap (rough idea)
-
-- [ ] Modularize frontend (React, components, clean state handling)
-- [ ] UI: album selection / time control / transitions / debug overlay
-- [ ] Backend: robust HEIC handling + preload/cache management
-- [ ] Health / watchdog: optional systemd service for kiosk/stack
-- [ ] Branding: custom boot splash (Plymouth theme)
-
----
+- Mono-repo: https://github.com/SebSas/digitaler-bilderkalender
+- `.gitignore` contains `dbk-api/cache/`
+- Mirror the Docker directories into the repo via `sync_docker_to_git.sh`;
+  sync **scripts manually**

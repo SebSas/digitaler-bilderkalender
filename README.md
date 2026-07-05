@@ -121,16 +121,18 @@ digitaler-bilderkalender/
 
 ---
 
-## Deployment auf dem Pi
+## Arbeitsmodell: Produktivsystem vs. Git-Backup
 
-Das Repo ist die **versionierte Kopie** — deployt wird aus separaten Verzeichnissen:
+**Produktiv ist das System selbst** — entwickelt und betrieben wird direkt in `~/docker/`
+(Container) und `~/scripts/` (Betriebsskripte). **Dieses Repo ist reines Backup/Versionierung**;
+es wird nichts aus dem Repo heraus deployt oder gestartet.
 
-| Deployt | Versioniert im Repo | Sync |
+| Produktiv (Quelle) | Backup im Repo | Sync-Richtung: produktiv → Repo |
 | --- | --- | --- |
 | `~/docker/dbk-api/`, `~/docker/dbk-web/` | `dbk-api/`, `dbk-web/` | `scripts/sync_docker_to_git.sh` (rsync, `DRY_RUN=1` möglich) |
 | `~/scripts/` | `scripts/` | **manuell** kopieren (wird vom Sync-Skript nicht erfasst!) |
 
-> Nach Änderungen an deployten Skripten daran denken, sie auch ins Repo zu kopieren.
+> Nach Änderungen am Produktivsystem daran denken, sie ins Repo zu syncen und zu committen.
 
 ---
 
