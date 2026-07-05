@@ -5,25 +5,24 @@ Der Pi startet automatisch eine Vollbild-Webansicht (Chromium Kiosk). Das Fronte
 das Backend (FastAPI) liefert die Bildliste, rendert Bilder als WebP (inkl. Cache) und stellt
 Zusatzdaten bereit (System-Telemetrie, Wetter, Feiertage, Geocoding).
 
+> **Doku-Konzept:** Dieses README beschreibt Konzept, Design, Installation und Betrieb.
+> Projektstatus, offene Punkte und Tasks werden **nicht** hier gepflegt, sondern in der
+> persönlichen Wissensbasis.
+
 Architektur-Doku: [doc/dbk_c4_level3_components.md](doc/dbk_c4_level3_components.md)
 
 ---
 
-## Status / Ziele
+## Konzept
 
-**Ist-Stand (2026-07)**
-- System läuft produktiv und stabil (Container-Uptime mehrere Monate)
-- Kiosk zeigt Diashow aus dem Immich-Album (lokaler Snapshot)
-- GUI: Vollbild-Slideshow, Footer mit Uhr/Datum/Wetter, Debug-Overlay mit Systemtelemetrie
-  (Temperatur, CPU, RAM, Lüfterstatus, WLAN, Tailscale), Sync- und Shutdown-Button
-- Betrieb vollständig über systemd: `dbk-stack`, `dbk-fan`, `dbk-postboot-check`
-- Lüftersteuerung überarbeitet (Hardware-PWM 25 kHz via pigpio, Anti-Chatter-Logik) —
-  das frühere Aussetzer-Problem ist behoben (siehe Abschnitt Lüftersteuerung)
-
-**Ziele**
-- Modularer Web-Code (erweiterbare GUI, z. B. React-Build nach `web-dist/`)
-- Saubere Repo-Struktur (Mono-Repo), gut dokumentiert
-- GitHub als Backup/Versionierung
+- **Quelle der Wahrheit** ist ein geteiltes Immich-Album auf dem Heimserver (dedizierter
+  Immich-User). Fotos werden von iOS-Geräten in das Album gelegt.
+- Der DBK-Client (dieser Pi) **spiegelt das Album als lokalen Snapshot** und zeigt ihn an —
+  dadurch ist die Anzeige stabil, schnell und unabhängig von Netz/Server.
+- Verbindung Client ↔ Server über **Tailscale** (VPN/MagicDNS).
+- Bedienung ausschließlich per Touch: Diashow im Vollbild, Footer mit Uhr/Datum/Wetter,
+  Debug-Overlay per **5× Tippen oben links**, Sync- und Shutdown-Funktion in der GUI.
+- Ausgelegt für **Dauerbetrieb**: möglichst geringer Energieverbrauch bei moderner Oberfläche.
 
 ---
 
@@ -32,7 +31,8 @@ Architektur-Doku: [doc/dbk_c4_level3_components.md](doc/dbk_c4_level3_components
 - Raspberry Pi 4
 - Display: Waveshare 10.1EP-CAPLCD (Touch, 1920×1200)
   Wiki: https://www.waveshare.com/wiki/10.1EP-CAPLCD
-- Aktive Kühlung: Noctua 4-Pin-PWM-Lüfter (PWM: BCM18, Enable: BCM17)
+- Aktive Kühlung (Design): Noctua 4-Pin-PWM-Lüfter (PWM: BCM18, Enable/Power-Gate: BCM17)
+- 3D-gedrucktes Gehäuse / Halterung
 - Storage-Mount:
   - `/mnt/picstorage` (Automount)
   - Album-Ordner: `/mnt/picstorage/picstorage-album/Digi Bilderkalender Ana/`
@@ -75,16 +75,12 @@ for f in /sys/class/drm/*HDMI*/status; do echo "$f: $(cat "$f")"; done
 
 ## Architektur
 
-Client/Server-System (Details und Diagramme: `doc/dbk_c4_level3_components.md`):
-
-- **Server:** `framework-server` mit Immich. Quelle der Wahrheit ist das geteilte Album
-  („Digi Kalender Ana", dedizierter Immich-User). Anbindung über **Tailscale** (MagicDNS).
-- **Client (dieser Pi):** spiegelt das Album als lokalen Snapshot und zeigt ihn über die Kiosk-Webapp.
+Client/Server-System (Diagramme: `doc/dbk_c4_level3_components.md`):
 
 ### Komponenten
 - **dbk-web** (Nginx)
   - statisches Frontend aus `dbk-web/web-dist/`
-  - Reverse Proxy: `/api/*` → `http://dbk-api:8090/api/*` (same-origin für die UI)
+  - Reverse Proxy: `/api/*` → `http://dbk-api:8090/api/*` (same-origin für die UI, kein CORS)
 - **dbk-api** (FastAPI + Uvicorn)
   - Bilder: `/api/images`, `/api/image/{id}`, `/api/thumb/{id}`
   - System: `/api/health`, `/api/system`
@@ -121,9 +117,7 @@ digitaler-bilderkalender/
 └─ scripts/                         # Betriebs-/Hilfsskripte (siehe Deployment)
 ```
 
-**Wichtig**
-- `dbk-api/cache/` ist generiert und wird **nicht** versioniert.
-- `README_EN.md` ist derzeit veraltet (Stand Jan 2026).
+**Wichtig:** `dbk-api/cache/` ist generiert und wird **nicht** versioniert.
 
 ---
 
@@ -136,8 +130,7 @@ Das Repo ist die **versionierte Kopie** — deployt wird aus separaten Verzeichn
 | `~/docker/dbk-api/`, `~/docker/dbk-web/` | `dbk-api/`, `dbk-web/` | `scripts/sync_docker_to_git.sh` (rsync, `DRY_RUN=1` möglich) |
 | `~/scripts/` | `scripts/` | **manuell** kopieren (wird vom Sync-Skript nicht erfasst!) |
 
-> Nach Änderungen an deployten Skripten daran denken, sie auch ins Repo zu kopieren —
-> der Drift zwischen `~/scripts/` und `scripts/` war schon einmal mehrere Monate groß.
+> Nach Änderungen an deployten Skripten daran denken, sie auch ins Repo zu kopieren.
 
 ---
 
@@ -156,23 +149,29 @@ journalctl -u dbk-fan --since -1d
 
 ---
 
-## Lüftersteuerung
+## Lüftersteuerung (Design)
 
-Kern: `scripts/pwm_fan_control.py` (deployt: `~/scripts/`), App: `temperature_control_app.py`.
+Kern: `scripts/pwm_fan_control.py`, App: `temperature_control_app.py` (deployt: `~/scripts/`).
 
-- **Hardware-PWM** via pigpio auf BCM18 mit **25 kHz** (Noctua-Spezifikation), Fallback: Software-PWM (RPi.GPIO, 1 kHz)
-- PWM-Signal **nicht invertiert**, Enable-Signal invertiert (Power-Gate auf BCM17)
+**Noctua-Vorgaben (Whitepaper):** PWM-Zielfrequenz 25 kHz (zulässig 21–28 kHz), Signal
+**nicht invertiert**, 100 % Duty = max. Drehzahl. Der PWM-Eingang ist intern auf 3,3/5 V
+hochgezogen; **Open-Collector-Treiber werden nicht empfohlen** (verformte Signale →
+Fehlverhalten) — die Treiberstufe muss CMOS-/Push-Pull-artig arbeiten.
+Tacho: Open Collector, 2 Impulse/Umdrehung → `RPM = f × 60 / 2`.
+
+**Software-Design:**
+- Hardware-PWM via pigpio auf BCM18 mit 25 kHz, Fallback: Software-PWM (RPi.GPIO, 1 kHz)
+- Enable-Signal invertiert (Power-Gate auf BCM17)
 - Hysterese: EIN ab 60 °C, AUS unter 52 °C — mit Bestätigungs-Samples (2× EIN / 3× AUS)
-- **Anti-Chatter:** min. 300 s an / 120 s aus, Start-Boost 70 % für 1,2 s, Mindest-Duty 50 %
+- Anti-Chatter: min. 300 s an / 120 s aus, Start-Boost 70 % für 1,2 s, Mindest-Duty 50 %
 - Duty-Kurve: < 75 °C → 50 %, < 82 °C → 70 %, sonst 100 %
 - Status-Export nach `~/docker/dbk-api/cache/fan_status.json` → Debug-Overlay der GUI
+  (zeigt den Software-Zustand, nicht zwingend einen physisch drehenden Lüfter)
 - Warnung bei aktivem `snd_bcm2835` (Konflikt mit Hardware-PWM auf BCM18 → `dtparam=audio=off`)
-- Tacho (Noctua): Open Collector, 2 Impulse/Umdrehung → `RPM = f × 60 / 2`
-- Testwerkzeuge: `fan_pwm_matrix_test.py` (Reports in `doc/fan-tests/`), `watch_gpio17.py`
 
-**Historie:** Die ursprüngliche Ansteuerung (invertiertes Software-PWM, Open-Collector-artig)
-führte zu sporadischen Lüfter-Aussetzern — deckt sich mit der Noctua-Warnung vor
-Open-Collector-Designs. Gelöst durch Hardware-PWM + Anti-Chatter-Logik (Feb 2026).
+**Testwerkzeuge:** `fan_pwm_matrix_test.py` (interaktive Testmatrix über Invertierungs-/Duty-
+Kombinationen, Reports in `doc/fan-tests/`), `watch_gpio17.py` (Enable-Pin beobachten),
+`fan_off.py` (Lüfter deterministisch aus).
 
 ---
 
@@ -270,18 +269,3 @@ Der Kiosk-Healthcheck fängt das ab (Chromium-Neustart sobald Health wieder saub
 - Mono-Repo: https://github.com/SebSas/digitaler-bilderkalender
 - `.gitignore` enthält `dbk-api/cache/`
 - Docker-Verzeichnisse per `sync_docker_to_git.sh` ins Repo spiegeln; **Skripte manuell** syncen
-
----
-
-## Roadmap
-
-- [x] UI: Footer mit Uhr/Datum/Wetter
-- [x] UI: Debug-Overlay mit Systemtelemetrie
-- [x] UI: Sync- und Shutdown-Funktion
-- [x] Backend: HEIC-Handling + WebP-Cache
-- [x] Health / Watchdog: systemd-Dienste für Stack, Lüfter und Post-Boot-Check
-- [x] Lüftersteuerung: Hardware-PWM + Anti-Chatter
-- [ ] Frontend modularisieren (React, Komponenten, sauberes State-Handling)
-- [ ] UI: Album-Auswahl / Zeitsteuerung / Übergänge
-- [ ] Branding: eigener Boot-Splash (Plymouth Theme)
-- [ ] README_EN.md aktualisieren oder entfernen
