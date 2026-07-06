@@ -88,6 +88,10 @@ Client/Server-System (Diagramme: `doc/dbk_c4_level3_components.md`):
   - Admin: `/api/admin/immich-sync` (GET/POST), `/api/admin/shutdown` (GET/POST)
   - Liest Album unter `/album`, rendert/cached WebP unter `/cache`
     (max 1920×1200, Thumbs max 512 px)
+  - **Bild-Queues:** liefert pro Bild ein Queue-Label (`short` < 30 Tage im Album,
+    `mid` 30–210 Tage, `long` > 210 Tage) auf Basis von `first_seen.json` im Cache;
+    die UI zeigt Neues häufig, Midterm alle ~10 min, Longterm ~1×/h (Scheduler in
+    `app/slideshow.js`; Dwell 90 s)
 
 ### Ports
 - Web (Nginx): `http://127.0.0.1:8080`
@@ -114,10 +118,18 @@ digitaler-bilderkalender/
 │  ├─ Dockerfile
 │  ├─ app/main.py                   # FastAPI entry
 │  └─ cache/                        # generated (ignored by git)
-└─ scripts/                         # Betriebs-/Hilfsskripte (siehe Deployment)
+├─ immichdl/                        # Album-Sync (Backup von ~/immichdl, OHNE .env!)
+│  ├─ sync_album.sh                 # Orchestrierung: Download → Spiegeln → Prune → Warmen
+│  ├─ immich_album_sync.py          # eigener Immich-v3-Downloader (stdlib-only)
+│  ├─ prune_cache.py                # Cache-Bereinigung für entfernte Bilder
+│  └─ .env.example                  # Variablennamen (echte .env bleibt nur auf dem Pi)
+├─ systemd/                         # Backup der Units aus /etc/systemd/system
+├─ kiosk/openbox-autostart          # Backup von ~/.config/openbox/autostart
+└─ scripts/                         # Betriebs-/Hilfsskripte (siehe Arbeitsmodell)
 ```
 
 **Wichtig:** `dbk-api/cache/` ist generiert und wird **nicht** versioniert.
+`immichdl/.env` (enthält den Immich-API-Key) ist per `.gitignore` ausgeschlossen.
 
 ---
 
@@ -131,8 +143,32 @@ es wird nichts aus dem Repo heraus deployt oder gestartet.
 | --- | --- | --- |
 | `~/docker/dbk-api/`, `~/docker/dbk-web/` | `dbk-api/`, `dbk-web/` | `scripts/sync_docker_to_git.sh` (rsync, `DRY_RUN=1` möglich) |
 | `~/scripts/` | `scripts/` | **manuell** kopieren (wird vom Sync-Skript nicht erfasst!) |
+| `~/immichdl/` (ohne `.env`) | `immichdl/` | **manuell** kopieren |
+| `/etc/systemd/system/dbk-*` | `systemd/` | **manuell** kopieren |
+| `~/.config/openbox/autostart` | `kiosk/openbox-autostart` | **manuell** kopieren |
 
 > Nach Änderungen am Produktivsystem daran denken, sie ins Repo zu syncen und zu committen.
+
+---
+
+## Album-Sync (Immich)
+
+Ausgelöst über den Sync-Button in der GUI bzw. `POST /api/admin/immich-sync`; Ablauf in
+`~/immichdl/sync_album.sh` (Log: `~/docker/dbk-api/cache/immich_sync.log`):
+
+1. **Download** des Albums per `immich_album_sync.py` — eigener, Immich-v3-kompatibler
+   Downloader (stdlib-only; `POST /api/search/metadata` + `GET /api/assets/{id}/original`).
+   Zugang über `~/immichdl/.env` (`IMMICH_BASE_URL`, `IMMICH_API_KEY` des dedizierten Users).
+2. **Guard:** Ist der Download leer oder unvollständig, bricht das Skript ab, **bevor** der
+   lokale Bestand angefasst wird (kein Wipe bei Albumnamen-Fehlern o. Ä.).
+3. **Spiegeln** in den Album-Ordner (harter Replace — in Immich entfernte Bilder
+   verschwinden damit auch lokal), dann **Prune** der zugehörigen Cache-Dateien.
+4. **Cache-Vorwärmung:** alle Bilder werden einmal als WebP (full + thumb) konvertiert,
+   damit Anzeige/Swipes nie Konvertierungs-Stürme auslösen.
+5. `sync`-Flush, damit ein späterer Storage-Aussetzer den Stand nicht zurückrollen kann.
+
+> Der Immich-Albumname (`IMMICH_ALBUM`) ist im Skript getrennt vom lokalen Ordnernamen
+> konfiguriert — der Ordnername steckt im Compose-Mount und bleibt stabil.
 
 ---
 
@@ -143,10 +179,11 @@ es wird nichts aus dem Repo heraus deployt oder gestartet.
 | `dbk-stack.service` | startet den Docker-Stack (`~/docker/dbk-api` + `~/docker/dbk-web`), triggert vorher den picstorage-Automount deterministisch |
 | `dbk-fan.service` | Lüftersteuerung: `temperature_control_app.py --poll-seconds 30`, benötigt `pigpiod.service`; sauberes Stoppen über `fan_off.py` |
 | `dbk-postboot-check.service` | Post-Boot Sanity Check (Backend + Display), läuft mit `DISPLAY=:0` |
+| `dbk-stack-recover.timer` | Selbstheilung: prüft jede Minute, ob der Stack down ist und `/mnt/picstorage` wieder erreichbar — startet `dbk-stack` dann automatisch neu (z. B. nach USB-Aussetzern) |
 
 ```bash
-systemctl status dbk-stack dbk-fan dbk-postboot-check
-journalctl -u dbk-fan --since -1d
+systemctl status dbk-stack dbk-fan dbk-postboot-check dbk-stack-recover.timer
+journalctl -u dbk-stack-recover --since -1d
 ```
 
 ---
@@ -259,6 +296,34 @@ docker logs --tail=200 dbk-api
 ```
 
 Zusätzlich: `dbk_postboot_check.sh` läuft automatisch nach dem Boot (`dbk-postboot-check.service`).
+
+**Schnelldiagnose Software vs. Panel:** `~/scripts/screenshot.sh` greift den X-Framebuffer
+ab. Zeigt der Screenshot die Diashow, rendert die Software korrekt und **das Panel** hat
+den Signal-Lock verloren (Display-Zicke) → **DPMS-Zyklus** weckt es ohne Neustart:
+
+```bash
+export DISPLAY=:0 XAUTHORITY=~/.Xauthority
+xset dpms force off; sleep 3; xset dpms force on; xset s off; xset -dpms
+```
+
+Ist der Screenshot dagegen schwarz, liegt es am Software-Stack (Checkliste oben).
+
+### Symptom: Stack down nach Storage-Aussetzer
+`dbk-stack` wird von systemd gestoppt, wenn `/mnt/picstorage` wegbricht
+(`RequiresMountsFor`). Die Selbstheilung `dbk-stack-recover.timer` startet ihn automatisch
+neu, sobald der Mount wieder erreichbar ist (max. ~1 min Wartezeit).
+Merker: Der Album-Speicher (USB-Kartenleser) gehört an einen **USB2-Port** — am
+USB3-Controller des Pi 4 (VL805) gab es reproduzierbare Link-Abrisse unter I/O-Last.
+
+### Symptom: Docker startet nach Kernel-Update nicht
+Neuere Pi-Kernel (ab 6.18) liefern das Legacy-`ip_tables`-Modul nicht mehr aus. Wenn
+iptables auf „legacy" steht, scheitert Docker mit `Module ip_tables not found`:
+
+```bash
+sudo update-alternatives --set iptables /usr/sbin/iptables-nft
+sudo update-alternatives --set ip6tables /usr/sbin/ip6tables-nft
+sudo systemctl restart docker && sudo systemctl restart dbk-stack
+```
 
 ### Symptom: 502 bei `/api/*`
 `dbk-web` läuft, aber Upstream `dbk-api` war kurz nicht erreichbar → Logs prüfen.

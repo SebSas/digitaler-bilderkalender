@@ -90,6 +90,10 @@ Client/server system (diagrams: `doc/dbk_c4_level3_components.md`):
   - Admin: `/api/admin/immich-sync` (GET/POST), `/api/admin/shutdown` (GET/POST)
   - Reads the album under `/album`, renders/caches WebP under `/cache`
     (max 1920×1200, thumbs max 512 px)
+  - **Image queues:** returns a queue label per image (`short` < 30 days in the album,
+    `mid` 30–210 days, `long` > 210 days) based on `first_seen.json` in the cache;
+    the UI shows new images frequently, midterm every ~10 min, longterm ~1×/h
+    (scheduler in `app/slideshow.js`; dwell 90 s)
 
 ### Ports
 - Web (Nginx): `http://127.0.0.1:8080`
@@ -116,10 +120,18 @@ digitaler-bilderkalender/
 │  ├─ Dockerfile
 │  ├─ app/main.py                   # FastAPI entry
 │  └─ cache/                        # generated (ignored by git)
+├─ immichdl/                        # album sync (backup of ~/immichdl, WITHOUT .env!)
+│  ├─ sync_album.sh                 # orchestration: download → mirror → prune → warm
+│  ├─ immich_album_sync.py          # own Immich v3 downloader (stdlib only)
+│  ├─ prune_cache.py                # cache cleanup for removed images
+│  └─ .env.example                  # variable names (real .env stays on the Pi only)
+├─ systemd/                         # backup of the units from /etc/systemd/system
+├─ kiosk/openbox-autostart          # backup of ~/.config/openbox/autostart
 └─ scripts/                         # operational/helper scripts (see working model)
 ```
 
 **Important:** `dbk-api/cache/` is generated and **not** versioned.
+`immichdl/.env` (contains the Immich API key) is excluded via `.gitignore`.
 
 ---
 
@@ -133,8 +145,32 @@ versioning only**; nothing is deployed or started from the repo.
 | --- | --- | --- |
 | `~/docker/dbk-api/`, `~/docker/dbk-web/` | `dbk-api/`, `dbk-web/` | `scripts/sync_docker_to_git.sh` (rsync, `DRY_RUN=1` supported) |
 | `~/scripts/` | `scripts/` | copy **manually** (not covered by the sync script!) |
+| `~/immichdl/` (without `.env`) | `immichdl/` | copy **manually** |
+| `/etc/systemd/system/dbk-*` | `systemd/` | copy **manually** |
+| `~/.config/openbox/autostart` | `kiosk/openbox-autostart` | copy **manually** |
 
 > After changing the production system, remember to sync the changes into the repo and commit.
+
+---
+
+## Album Sync (Immich)
+
+Triggered via the sync button in the GUI or `POST /api/admin/immich-sync`; flow in
+`~/immichdl/sync_album.sh` (log: `~/docker/dbk-api/cache/immich_sync.log`):
+
+1. **Download** the album via `immich_album_sync.py` — own Immich-v3-compatible downloader
+   (stdlib only; `POST /api/search/metadata` + `GET /api/assets/{id}/original`). Access via
+   `~/immichdl/.env` (`IMMICH_BASE_URL`, `IMMICH_API_KEY` of the dedicated user).
+2. **Guard:** if the download is empty or incomplete, the script aborts **before** touching
+   the local snapshot (no wipe on album-name mismatches etc.).
+3. **Mirror** into the album folder (hard replace — images removed in Immich disappear
+   locally as well), then **prune** their cache files.
+4. **Cache pre-warming:** every image is converted once to WebP (full + thumb) so that
+   display/swiping never triggers conversion storms.
+5. `sync` flush so a later storage dropout cannot roll back the result.
+
+> The Immich album name (`IMMICH_ALBUM`) is configured separately from the local folder
+> name — the folder name is baked into the compose mount and stays stable.
 
 ---
 
@@ -145,10 +181,11 @@ versioning only**; nothing is deployed or started from the repo.
 | `dbk-stack.service` | starts the Docker stack (`~/docker/dbk-api` + `~/docker/dbk-web`), deterministically triggers the picstorage automount first |
 | `dbk-fan.service` | fan control: `temperature_control_app.py --poll-seconds 30`, requires `pigpiod.service`; clean stop via `fan_off.py` |
 | `dbk-postboot-check.service` | post-boot sanity check (backend + display), runs with `DISPLAY=:0` |
+| `dbk-stack-recover.timer` | self-healing: checks every minute whether the stack is down and `/mnt/picstorage` is reachable again — then restarts `dbk-stack` automatically (e.g. after USB dropouts) |
 
 ```bash
-systemctl status dbk-stack dbk-fan dbk-postboot-check
-journalctl -u dbk-fan --since -1d
+systemctl status dbk-stack dbk-fan dbk-postboot-check dbk-stack-recover.timer
+journalctl -u dbk-stack-recover --since -1d
 ```
 
 ---
@@ -263,6 +300,34 @@ docker logs --tail=200 dbk-api
 
 Additionally: `dbk_postboot_check.sh` runs automatically after boot
 (`dbk-postboot-check.service`).
+
+**Quick software-vs-panel diagnosis:** `~/scripts/screenshot.sh` grabs the X framebuffer.
+If the screenshot shows the slideshow, the software renders fine and **the panel** lost its
+signal lock (display quirk) → a **DPMS cycle** wakes it without restarting anything:
+
+```bash
+export DISPLAY=:0 XAUTHORITY=~/.Xauthority
+xset dpms force off; sleep 3; xset dpms force on; xset s off; xset -dpms
+```
+
+If the screenshot is black instead, the software stack is the problem (checklist above).
+
+### Symptom: stack down after a storage dropout
+systemd stops `dbk-stack` when `/mnt/picstorage` goes away (`RequiresMountsFor`). The
+self-healing `dbk-stack-recover.timer` restarts it automatically once the mount is
+reachable again (max ~1 min delay).
+Reminder: the album storage (USB card reader) belongs on a **USB2 port** — the Pi 4's
+USB3 controller (VL805) showed reproducible link drops under I/O load.
+
+### Symptom: Docker does not start after a kernel update
+Newer Pi kernels (6.18+) no longer ship the legacy `ip_tables` module. If iptables is set
+to "legacy", Docker fails with `Module ip_tables not found`:
+
+```bash
+sudo update-alternatives --set iptables /usr/sbin/iptables-nft
+sudo update-alternatives --set ip6tables /usr/sbin/ip6tables-nft
+sudo systemctl restart docker && sudo systemctl restart dbk-stack
+```
 
 ### Symptom: 502 on `/api/*`
 `dbk-web` is running but upstream `dbk-api` was briefly unreachable → check logs.

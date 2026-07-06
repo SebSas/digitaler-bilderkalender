@@ -1,0 +1,7 @@
+[Unit]
+Description=Restart DBK stack when picstorage is back after a USB dropout
+
+[Service]
+Type=oneshot
+# Only act when the stack is down AND the storage is reachable again.
+ExecStart=/usr/bin/bash -c 'systemctl is-active --quiet dbk-stack && exit 0; timeout 10 ls /mnt/picstorage/picstorage-album >/dev/null 2>&1 || exit 0; echo "picstorage back, restarting dbk-stack"; systemctl restart dbk-stack'

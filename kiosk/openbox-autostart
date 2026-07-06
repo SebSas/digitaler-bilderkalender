@@ -1,0 +1,150 @@
+#!/bin/sh
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Hide mouse cursor quickly
+#unclutter -idle 0.1 -root &
+unclutter-xfixes --hide-on-touch --timeout 0 --jitter 10 --root &
+
+
+# Disable screen blanking / power management (robust)
+(
+  for i in 1 2 3 4 5; do
+    xset s off
+    xset -dpms
+    xset s noblank
+    sleep 1
+  done
+) >/tmp/dbk-xset.log 2>&1 &
+
+# Trigger systemd automount deterministically (prevents Docker bind-mount race)
+(
+  # Touch the mount + relevant dirs so autofs fully activates before Docker/Chromium needs it
+  ls -la /mnt/picstorage >/dev/null 2>&1 || true
+  ls -la "/mnt/picstorage/picstorage-album" >/dev/null 2>&1 || true
+) >/tmp/dbk-mount-warmup.log 2>&1 &
+
+# Kiosk (auto-restart + health-check, robust)
+(
+  HEALTH_URL="http://127.0.0.1:8080/api/health"
+  CURL_OPTS="-fsS --connect-timeout 2 --max-time 5"
+  PREFER_GPU=1
+  QUICK_GPU_EXIT_COUNT=0
+  SAFE_RUNS=0
+
+  start_chromium() {
+    MODE="$1"
+    if [ "$MODE" = "gpu" ]; then
+      echo "$(date -Is) starting chromium (GPU mode)..."
+      chromium \
+        --kiosk http://127.0.0.1:8080 \
+        --no-first-run --no-default-browser-check \
+        --noerrdialogs --disable-infobars \
+        --user-data-dir=/home/sebi/.config/chromium-kiosk \
+        --disable-translate --translate-script-url= \
+        --disable-features=Translate,TranslateUI \
+        --lang=de-DE \
+        --check-for-update-interval=31536000 \
+        --overscroll-history-navigation=0 \
+        --disable-pinch \
+        --disable-session-crashed-bubble \
+        --autoplay-policy=no-user-gesture-required \
+        --disable-background-networking --disable-component-update --disable-sync --disable-extensions \
+        --disable-features=Translate,TranslateUI,OptimizationHints,MediaRouter,OnDeviceModel \
+        --disable-vulkan --no-gl-override --no-sandbox \
+        &
+      CHR_MODE="gpu"
+    else
+      echo "$(date -Is) starting chromium (SAFE software mode)..."
+      chromium \
+        --kiosk http://127.0.0.1:8080 \
+        --no-first-run --no-default-browser-check \
+        --noerrdialogs --disable-infobars \
+        --user-data-dir=/home/sebi/.config/chromium-kiosk \
+        --disable-translate --translate-script-url= \
+        --disable-features=Translate,TranslateUI \
+        --lang=de-DE \
+        --check-for-update-interval=31536000 \
+        --overscroll-history-navigation=0 \
+        --disable-pinch \
+        --disable-session-crashed-bubble \
+        --autoplay-policy=no-user-gesture-required \
+        --disable-background-networking --disable-component-update --disable-sync --disable-extensions \
+        --disable-features=Translate,TranslateUI,OptimizationHints,MediaRouter,OnDeviceModel \
+        --disable-gpu --disable-gpu-compositing --in-process-gpu --disable-vulkan --use-gl=swiftshader --no-sandbox \
+        &
+      CHR_MODE="safe"
+    fi
+    CHR_PID=$!
+    CHR_START_TS=$(date +%s)
+  }
+
+  while true; do
+    # Wait until web stack is reachable (boot race protection)
+    until curl $CURL_OPTS "$HEALTH_URL" >/dev/null 2>&1 \
+      && curl $CURL_OPTS "http://127.0.0.1:8080/api/images" | head -c 1 | grep -q '\['; do
+      echo "$(date -Is) waiting for backend (health + images) ..."
+      sleep 2
+    done
+
+    # Start Chromium in kiosk app mode (no browser UI) + disable translate UI
+    /home/sebi/scripts/disable_chromium_translate.sh
+
+    # Ensure no stale chromium session blocks kiosk start
+    pkill -u "$USER" -f 'chromium.*chromium-kiosk' >/dev/null 2>&1 || true
+    rm -f /home/sebi/.config/chromium-kiosk/Singleton*
+
+    if [ "$PREFER_GPU" -eq 1 ]; then
+      start_chromium "gpu"
+    else
+      start_chromium "safe"
+    fi
+
+    fails=0
+    while kill -0 "$CHR_PID" 2>/dev/null; do
+      if curl $CURL_OPTS "$HEALTH_URL" >/dev/null 2>&1 \
+        && curl $CURL_OPTS "http://127.0.0.1:8080/api/images" | head -c 1 | grep -q '\['; then
+        fails=0
+      else
+        fails=$((fails+1))
+        echo "$(date -Is) healthcheck failed ($fails/3)"
+        if [ "$fails" -ge 3 ]; then
+          echo "$(date -Is) restarting chromium (pid=$CHR_PID)"
+          kill "$CHR_PID" 2>/dev/null || true
+          sleep 2
+          kill -9 "$CHR_PID" 2>/dev/null || true
+          break
+        fi
+      fi
+      sleep 15
+    done
+
+    wait "$CHR_PID" 2>/dev/null || true
+    CHR_END_TS=$(date +%s)
+    CHR_RUNTIME=$((CHR_END_TS - CHR_START_TS))
+
+    if [ "$CHR_MODE" = "gpu" ]; then
+      if [ "$CHR_RUNTIME" -lt 30 ]; then
+        QUICK_GPU_EXIT_COUNT=$((QUICK_GPU_EXIT_COUNT + 1))
+        echo "$(date -Is) chromium GPU mode exited quickly (${CHR_RUNTIME}s, streak=${QUICK_GPU_EXIT_COUNT})"
+      else
+        QUICK_GPU_EXIT_COUNT=0
+      fi
+      SAFE_RUNS=0
+      if [ "$QUICK_GPU_EXIT_COUNT" -ge 2 ]; then
+        PREFER_GPU=0
+        echo "$(date -Is) switching to SAFE software mode after repeated quick GPU exits"
+      fi
+    else
+      QUICK_GPU_EXIT_COUNT=0
+      SAFE_RUNS=$((SAFE_RUNS + 1))
+      # Retry GPU regularly to reclaim hardware acceleration when possible.
+      if [ "$SAFE_RUNS" -ge 10 ]; then
+        PREFER_GPU=1
+        SAFE_RUNS=0
+        echo "$(date -Is) retrying GPU mode after stable SAFE runs"
+      fi
+    fi
+
+    sleep 2
+  done
+) >/tmp/dbk-kiosk.log 2>&1 &

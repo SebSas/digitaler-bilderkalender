@@ -1,0 +1,12 @@
+[Unit]
+Description=DBK Post-Boot Sanity Check (backend + display)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=sebi
+ExecStart=/home/sebi/scripts/dbk_postboot_check.sh
+
+[Install]
+WantedBy=multi-user.target

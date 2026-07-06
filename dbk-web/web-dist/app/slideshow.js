@@ -9,9 +9,62 @@ let swapId = 0;
 const fadeMs = 900;
 let landscapeSwapCounter = 0;
 
-// Ken Burns via JS stepping instead of a CSS animation: the zoom is so slow
-// (4% over 22s) that ~12fps is visually identical to 60fps, but the
-// compositor can idle between steps (60fps CSS kept the Pi at ~25% total CPU).
+// --- Queue scheduling (see vault note konzept-bild-queues) ------------------
+// Dwell is uniform for all images; queues only control how often they supply
+// a slot. Mid/long have guaranteed frequencies, short takes all remaining
+// slots and therefore adapts automatically to the amount of new images.
+const dwellMs = 90 * 1000;          // display time per image (target: 1-2 min)
+const midEveryMs = 10 * 60 * 1000;  // guaranteed midterm slot
+const longEveryMs = 60 * 60 * 1000; // guaranteed longterm slot
+
+let lastMidAt = 0;
+let lastLongAt = 0;
+const queueCursors = { short: 0, mid: 0, long: 0 };
+const shownHistory = [];
+let historyPos = -1;
+const historyMax = 50;
+
+function imagesByQueue() {
+  // Images without a queue label (older backend) fall back to midterm.
+  const queues = { short: [], mid: [], long: [] };
+  for (const img of state.images) {
+    (queues[img.queue] || queues.mid).push(img);
+  }
+  return queues;
+}
+
+function pickFromQueues(commit) {
+  const queues = imagesByQueue();
+  const now = Date.now();
+  let name = null;
+  if (queues.long.length && now - lastLongAt >= longEveryMs) {
+    name = "long";
+  } else if (queues.mid.length && now - lastMidAt >= midEveryMs) {
+    name = "mid";
+  } else if (queues.short.length) {
+    name = "short";
+  } else if (queues.mid.length) {
+    name = "mid";
+  } else if (queues.long.length) {
+    name = "long";
+  } else {
+    return null;
+  }
+
+  const list = queues[name];
+  const img = list[queueCursors[name] % list.length];
+  if (commit) {
+    queueCursors[name] = (queueCursors[name] + 1) % list.length;
+    if (name === "mid") lastMidAt = now;
+    if (name === "long") lastLongAt = now;
+    renderDebug(`queue: ${name} (s/m/l ${queues.short.length}/${queues.mid.length}/${queues.long.length})`);
+  }
+  return img;
+}
+
+// --- Ken Burns via JS stepping (see commit 1ab19b3) --------------------------
+// The zoom is so slow (4% over 22s) that ~8fps is visually identical to a
+// 60fps CSS animation, but lets the compositor idle between steps.
 const kenburnsMs = 22000;
 const kenburnsFps = 8;
 let kenburnsTimer = null;
@@ -57,7 +110,7 @@ export async function refreshImagesList() {
     if (Array.isArray(list) && list.length > 0) {
       state.images = list;
 
-      // Keep daily shuffle after refresh
+      // Keep daily shuffle after refresh (order within each queue follows it)
       const dayKey = new Date().toISOString().slice(0, 10);
       shuffleInPlace(state.images, hashStringToInt(dayKey));
 
@@ -123,22 +176,50 @@ export function showImage(obj) {
 
   state.showingA = !state.showingA;
 
-  // Preload next
-  const next = state.images[(state.index + 1) % state.images.length];
-  if (next?.id) preload(next.id).then((ok) => renderDebug(`preload next: ${ok}`));
+  // Preload the predicted next image (peek does not advance the scheduler)
+  const next = pickFromQueues(false);
+  if (next?.id && next.id !== obj.id) {
+    preload(next.id).then((ok) => renderDebug(`preload next: ${ok}`));
+  }
 }
 
 export function nextImage(step) {
   if (!state.images.length) return;
-  state.index = (state.index + step + state.images.length) % state.images.length;
-  showImage(state.images[state.index]);
+
+  let img = null;
+  if (step < 0) {
+    // Manual back: walk the history of actually shown images
+    if (historyPos > 0) {
+      historyPos -= 1;
+      img = shownHistory[historyPos];
+    } else {
+      return;
+    }
+  } else if (historyPos < shownHistory.length - 1) {
+    // Manual forward after going back: replay history first
+    historyPos += 1;
+    img = shownHistory[historyPos];
+  } else {
+    img = pickFromQueues(true);
+    if (!img) return;
+    shownHistory.push(img);
+    if (shownHistory.length > historyMax) shownHistory.shift();
+    historyPos = shownHistory.length - 1;
+  }
+
+  const idx = state.images.findIndex((x) => x.id === img.id);
+  if (idx >= 0) state.index = idx;
+  showImage(img);
   renderDebug(`step: ${step}`);
 }
 
 export function startSlideshow() {
   if (state.timer) clearInterval(state.timer);
-  const intervalMs = 9000;
-  state.timer = setInterval(() => nextImage(1), intervalMs);
+  // Do not open the show with the guaranteed mid/long slots
+  const now = Date.now();
+  if (!lastMidAt) lastMidAt = now;
+  if (!lastLongAt) lastLongAt = now;
+  state.timer = setInterval(() => nextImage(1), dwellMs);
 }
 
 export async function preloadFirstImage() {

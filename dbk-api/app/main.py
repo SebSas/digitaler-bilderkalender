@@ -1008,13 +1008,81 @@ def health() -> Dict[str, object]:
     return {"ok": True, "album_dir": str(ALBUM_DIR)}
 
 
+# --- Image queues (short/mid/long) -----------------------------------------
+# Queue membership derives from how long an image has been in the album
+# (first_seen), not from EXIF dates: new album content should surface quickly
+# regardless of when the photo was taken.
+QUEUE_SHORT_MAX_DAYS = int(os.environ.get("DBK_QUEUE_SHORT_MAX_DAYS", "30"))
+QUEUE_MID_MAX_DAYS = int(os.environ.get("DBK_QUEUE_MID_MAX_DAYS", "210"))
+
+_first_seen_lock = threading.Lock()
+_first_seen_cache: Optional[Dict[str, float]] = None
+
+
+def _first_seen_path() -> Path:
+    return CACHE_DIR / "first_seen.json"
+
+
+def _update_first_seen(imgs: List[Path]) -> Dict[str, float]:
+    """Track when an image id was first indexed; bootstrap with file mtime."""
+    global _first_seen_cache
+    with _first_seen_lock:
+        if _first_seen_cache is None:
+            raw = _read_json(_first_seen_path()) or {}
+            _first_seen_cache = {
+                k: float(v) for k, v in raw.items() if isinstance(v, (int, float))
+            }
+
+        known = _first_seen_cache
+        current_ids = set()
+        changed = False
+        for img_path in imgs:
+            image_id = _hash_path(img_path)
+            current_ids.add(image_id)
+            if image_id not in known:
+                try:
+                    known[image_id] = float(img_path.stat().st_mtime)
+                except OSError:
+                    known[image_id] = time.time()
+                changed = True
+
+        removed = [k for k in known if k not in current_ids]
+        for k in removed:
+            del known[k]
+            changed = True
+
+        if changed:
+            _write_json(_first_seen_path(), known)
+        return dict(known)
+
+
+def _queue_for_first_seen(first_seen_ts: float, now: float) -> str:
+    age_days = (now - first_seen_ts) / 86400.0
+    if age_days < QUEUE_SHORT_MAX_DAYS:
+        return "short"
+    if age_days < QUEUE_MID_MAX_DAYS:
+        return "mid"
+    return "long"
+
+
 @app.get("/api/images")
 def images() -> JSONResponse:
     """
-    Return a list of available images: [{id, name}, ...]
+    Return a list of available images: [{id, name, queue, first_seen}, ...]
     """
     imgs = _list_images()
-    data = [{"id": _hash_path(p), "name": p.name} for p in imgs]
+    first_seen = _update_first_seen(imgs)
+    now = time.time()
+    data = []
+    for img_path in imgs:
+        image_id = _hash_path(img_path)
+        seen_ts = first_seen.get(image_id, now)
+        data.append({
+            "id": image_id,
+            "name": img_path.name,
+            "queue": _queue_for_first_seen(seen_ts, now),
+            "first_seen": int(seen_ts),
+        })
     return JSONResponse(data)
 
 

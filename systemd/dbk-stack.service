@@ -1,0 +1,26 @@
+[Unit]
+Description=DBK Docker Stack (dbk-api + dbk-web)
+After=network-online.target docker.service mnt-picstorage.automount
+Wants=network-online.target docker.service mnt-picstorage.automount
+Requires=docker.service
+RequiresMountsFor=/mnt/picstorage
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+# Trigger the automount deterministically (important!)
+ExecStartPre=/usr/bin/bash -lc 'ls -la /mnt/picstorage >/dev/null'
+ExecStartPre=/usr/bin/bash -lc 'ls -la "/mnt/picstorage/picstorage-album" >/dev/null'
+ExecStartPre=/usr/bin/bash -lc 'mkdir -p "/mnt/picstorage/picstorage-album/Digi Bilderkalender Ana"'
+
+ExecStart=/usr/bin/bash -lc 'cd /home/sebi/docker/dbk-api && docker compose up -d'
+ExecStart=/usr/bin/bash -lc 'cd /home/sebi/docker/dbk-web && docker compose up -d'
+
+ExecStop=/usr/bin/bash -lc 'cd /home/sebi/docker/dbk-web && docker compose down'
+ExecStop=/usr/bin/bash -lc 'cd /home/sebi/docker/dbk-api && docker compose down'
+
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target
