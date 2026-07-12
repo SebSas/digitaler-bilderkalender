@@ -3,6 +3,7 @@ export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 # Hide mouse cursor quickly
 #unclutter -idle 0.1 -root &
+xsetroot -solid "#c9c9cc" 2>/dev/null
 unclutter-xfixes --hide-on-touch --timeout 0 --jitter 10 --root &
 
 

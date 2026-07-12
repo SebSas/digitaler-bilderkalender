@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=SebLab Design
+Description=SebLab Design Bootbildschirm für Raspberry Pi
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/seblab
+ScriptFile=/usr/share/plymouth/themes/seblab/seblab.script
