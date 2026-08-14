@@ -1,0 +1,14 @@
+[Unit]
+Description=DBK Netzwerk-Helfer (WLAN-Einrichtung ohne Kabel)
+After=NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /home/sebi/scripts/dbk_netcfg_helper.py
+Restart=always
+RestartSec=5
+RuntimeDirectory=dbk-netcfg
+
+[Install]
+WantedBy=multi-user.target

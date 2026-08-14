@@ -7,6 +7,7 @@ import { setLastError, state } from "./state.js";
 
 let swapId = 0;
 const fadeMs = 900;
+const manualFadeMs = 250; // swipe navigation: fast fade for perceptible response
 let landscapeSwapCounter = 0;
 
 // --- Queue scheduling (see vault note konzept-bild-queues) ------------------
@@ -23,6 +24,14 @@ const queueCursors = { short: 0, mid: 0, long: 0 };
 const shownHistory = [];
 let historyPos = -1;
 const historyMax = 50;
+
+// The boot image is shown via showImage() directly, bypassing nextImage() —
+// without seeding it here, manual back-swipes silently do nothing until the
+// second automatic advance and then lag one step behind.
+export function seedHistory(img) {
+  shownHistory.push(img);
+  historyPos = shownHistory.length - 1;
+}
 
 function imagesByQueue() {
   // Images without a queue label (older backend) fall back to midterm.
@@ -131,8 +140,10 @@ export function schedulePeriodicRefresh() {
   state.refreshTimer = setInterval(refreshImagesList, 10 * 60 * 1000); // every 10 minutes
 }
 
-export function showImage(obj) {
+export function showImage(obj, manual = false) {
   const url = imageUrl(obj.id);
+  const effFadeMs = manual ? manualFadeMs : fadeMs;
+  document.body.classList.toggle("manual-nav", manual);
 
   const incoming = state.showingA ? els.imgA : els.imgB;
   const outgoing = state.showingA ? els.imgB : els.imgA;
@@ -168,7 +179,7 @@ export function showImage(obj) {
       outgoingSlot.classList.remove("portrait");
       outgoing.classList.remove("kenburns");
       outgoing.style.transform = "";
-    }, fadeMs + 50);
+    }, effFadeMs + 50);
   });
 
   els.filePill.style.display = "none";
@@ -181,9 +192,15 @@ export function showImage(obj) {
   if (next?.id && next.id !== obj.id) {
     preload(next.id).then((ok) => renderDebug(`preload next: ${ok}`));
   }
+
+  // Preload the manual-back neighbour so backward swipes hit a decoded image
+  const prev = historyPos > 0 ? shownHistory[historyPos - 1] : null;
+  if (prev?.id && prev.id !== obj.id && prev.id !== next?.id) {
+    preload(prev.id);
+  }
 }
 
-export function nextImage(step) {
+export function nextImage(step, manual = false) {
   if (!state.images.length) return;
 
   let img = null;
@@ -209,7 +226,7 @@ export function nextImage(step) {
 
   const idx = state.images.findIndex((x) => x.id === img.id);
   if (idx >= 0) state.index = idx;
-  showImage(img);
+  showImage(img, manual);
   renderDebug(`step: ${step}`);
 }
 

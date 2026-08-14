@@ -1,10 +1,11 @@
 import { els, setOverlay } from "./dom.js";
 import { renderDebug, setDebug } from "./debug.js";
 import { fetchJson } from "./api.js";
-import { schedulePeriodicRefresh, startSlideshow, nextImage, showImage, preloadFirstImage } from "./slideshow.js";
+import { schedulePeriodicRefresh, startSlideshow, nextImage, showImage, preloadFirstImage, seedHistory } from "./slideshow.js";
 import { hashStringToInt, shuffleInPlace } from "./shuffle.js";
 import { updateClock } from "./time.js";
 import { bootFooter } from "./footer.js";
+import { bootWifi } from "./wifi.js";
 import { setLastError, state } from "./state.js";
 
 async function boot() {
@@ -31,6 +32,7 @@ async function boot() {
     await preloadFirstImage();
 
     setOverlay(false);
+    seedHistory(state.images[0]);
     showImage(state.images[0]);
     startSlideshow();
     schedulePeriodicRefresh();
@@ -73,14 +75,22 @@ window.addEventListener("touchend", (ev) => {
   touch.x0 = null;
   touch.y0 = null;
 
-  if (Math.abs(dx) > 60 && Math.abs(dy) < 80) {
+  // Angle criterion instead of a hard dy limit: sloppy diagonal swipes on the
+  // 10.1" panel were silently rejected by the old `dy < 80` check.
+  if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy)) {
     // Swipe left -> next, swipe right -> prev
-    nextImage(dx < 0 ? 1 : -1);
+    nextImage(dx < 0 ? 1 : -1, true);
     startSlideshow();
   }
+}, { passive: true });
+
+window.addEventListener("touchcancel", () => {
+  touch.x0 = null;
+  touch.y0 = null;
 }, { passive: true });
 
 updateClock(els);
 setInterval(() => updateClock(els), 15000);
 bootFooter();
+bootWifi();
 boot();

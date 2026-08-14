@@ -45,6 +45,10 @@ RSYNC_EXCLUDES=(
   "--exclude=venv/"
 
   "--exclude=*.log"
+
+  # Sicherungen vor Eingriffen bleiben auf dem Geraet, nicht im Repo.
+  "--exclude=*.bak"
+  "--exclude=*.bak-*"
 )
 
 RSYNC_BASE_ARGS=(

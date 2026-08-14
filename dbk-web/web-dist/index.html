@@ -53,6 +53,10 @@
 
     .slot.show { opacity: 1; }
 
+    /* Swipe navigation: fast fade so the gesture gets a perceptible response
+       (class toggled per showImage() in app/slideshow.js, 250ms = manualFadeMs) */
+    body.manual-nav .slot { transition-duration: 250ms; }
+
     .img {
       position: absolute;
       inset: 0;
@@ -254,6 +258,67 @@
       opacity: .65;
       cursor: default;
     }
+
+    .wifi-btn {
+      position: absolute;
+      right: 84px;
+      bottom: 14px;
+      height: 56px;
+      padding: 0 20px;
+      border-radius: 999px;
+      border: 2px solid rgba(255,220,120,.92);
+      background: rgba(0,0,0,.30);
+      color: rgba(255,235,180,.98);
+      font-size: 20px;
+      font-weight: 650;
+      display: none;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      box-shadow: 0 12px 24px rgba(0,0,0,.35);
+    }
+
+    .wifi-btn svg { width: 28px; height: 28px; display: block; }
+    .wifi-btn:active { transform: scale(.97); }
+
+    .wifi-panel {
+      position: fixed;
+      inset: 0;
+      z-index: 60;
+      display: none;
+      place-items: center;
+      background: rgba(0,0,0,.82);
+    }
+
+    .wifi-card {
+      background: #14161a;
+      border-radius: 22px;
+      padding: 34px 40px;
+      max-width: 760px;
+      text-align: center;
+      box-shadow: 0 30px 70px rgba(0,0,0,.6);
+    }
+
+    .wifi-card h2 { margin: 0 0 6px; font-size: 34px; }
+    .wifi-card .lead { margin: 0 0 22px; color: #9aa3ad; font-size: 19px; }
+    .wifi-qr { background: #fff; padding: 14px; border-radius: 16px; display: inline-block; }
+    .wifi-qr img { width: 320px; height: 320px; display: block; }
+    .wifi-creds { margin-top: 16px; font-size: 20px; color: #cfd6dd; }
+    .wifi-creds b { color: #fff; font-family: ui-monospace, monospace; letter-spacing: .5px; }
+    .wifi-msg { margin-top: 20px; font-size: 21px; line-height: 1.45; color: #e6ebf0; min-height: 30px; }
+    .wifi-actions { margin-top: 26px; display: flex; gap: 14px; justify-content: center; }
+    .wifi-actions button {
+      padding: 15px 26px;
+      font-size: 19px;
+      font-weight: 600;
+      border-radius: 12px;
+      border: 1px solid #3a4048;
+      background: #232830;
+      color: #e6ebf0;
+      cursor: pointer;
+    }
+    .wifi-actions button.primary { background: #2d7dd2; border-color: #2d7dd2; color: #fff; }
+    .wifi-actions button:disabled { opacity: .55; cursor: default; }
 
     .calendar-header {
       font-size: 29px;
@@ -573,6 +638,15 @@
             <div class="weather-header">3-Tages Vorhersage</div>
             <div id="weatherForecast" class="weather-forecast"></div>
           </div>
+          <button id="wifiBtn" class="wifi-btn" type="button" aria-label="WLAN einrichten">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M2 8.8a16 16 0 0 1 20 0" />
+              <path d="M5 12.5a11 11 0 0 1 14 0" />
+              <path d="M8.5 16.2a6 6 0 0 1 7 0" />
+              <circle cx="12" cy="20" r="1" fill="currentColor" />
+            </svg>
+            WLAN einrichten
+          </button>
           <button id="shutdownBtn" class="shutdown-btn" type="button" aria-label="System herunterfahren">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M12 2v9" />
@@ -588,6 +662,23 @@
         <div id="overlayTitle" class="title">Loading…</div>
         <div id="overlayText" class="text">Bitte kurz warten…</div>
         <div class="hint">Tipp: 5× oben rechts tippen → Debug</div>
+      </div>
+    </div>
+
+    <div id="wifiPanel" class="wifi-panel">
+      <div class="wifi-card">
+        <h2>WLAN einrichten</h2>
+        <p class="lead">Mit dem Handy den QR-Code scannen — danach öffnet sich die Eingabeseite von selbst.</p>
+        <div id="wifiQrBox" class="wifi-qr" style="display:none">
+          <img id="wifiQr" alt="QR-Code zum Verbinden mit dem Einrichtungs-WLAN">
+        </div>
+        <div class="wifi-creds">
+          Netz <b id="wifiSsid">—</b> &nbsp;·&nbsp; Passwort <b id="wifiPsk">—</b>
+        </div>
+        <div id="wifiMsg" class="wifi-msg"></div>
+        <div class="wifi-actions">
+          <button id="wifiCloseBtn" type="button">Schließen</button>
+        </div>
       </div>
     </div>
 

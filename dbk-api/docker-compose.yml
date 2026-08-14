@@ -4,16 +4,16 @@ services:
     container_name: dbk-api
     environment:
       - DBK_ALBUM_DIR=/album
+      - DBK_NETCFG_URL=http://172.20.0.1:8091
       - DBK_CACHE_DIR=/cache
       - DBK_CACHE_FORMAT=webp
       - DBK_CACHE_MAX_WIDTH=1920
       - DBK_CACHE_MAX_HEIGHT=1200
       - DBK_THUMB_MAX_EDGE=512
     volumes:
-      - /mnt/picstorage/picstorage-album/Digi Bilderkalender Ana:/album:ro
+      - /home/sebi/dbk-album/Digi Bilderkalender Ana:/album:ro
       - ./cache:/cache
       - /home/sebi/immichdl:/home/sebi/immichdl:ro
-      - /mnt/picstorage:/mnt/picstorage
       - /var/run/docker.sock:/var/run/docker.sock
       - /sys:/sys:ro
       - /proc:/proc:ro

@@ -3,9 +3,9 @@ import json
 import os
 import pillow_heif
 import re
-import shutil
 import subprocess
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -15,7 +15,7 @@ import threading
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from pathlib import Path
 from PIL import Image, ImageOps, UnidentifiedImageError
 from typing import List, Dict, Optional, Tuple
@@ -415,8 +415,17 @@ def _read_fan_status() -> Dict[str, object]:
     return base
 
 
+def _proc_net(name: str) -> Path:
+    # /proc/net zeigt den Netzwerk-Namespace des lesenden Prozesses - im Container
+    # also dessen eigenes eth0 zum Docker-Gateway statt der Route des Geraets, und
+    # eine leere WLAN-Statistik. /proc ist vom Host eingehaengt, daher liefert PID 1
+    # die Sicht des Hosts.
+    host = Path(f"/proc/1/net/{name}")
+    return host if host.exists() else Path(f"/proc/net/{name}")
+
+
 def _read_default_route_iface() -> Optional[str]:
-    p = Path("/proc/net/route")
+    p = _proc_net("route")
     if not p.exists():
         return None
     try:
@@ -439,7 +448,7 @@ def _read_default_route_iface() -> Optional[str]:
 
 
 def _read_wireless_stats(iface: str) -> Dict[str, Optional[float]]:
-    p = Path("/proc/net/wireless")
+    p = _proc_net("wireless")
     if not p.exists():
         return {"link_quality_pct": None, "signal_dbm": None}
     try:
@@ -501,7 +510,7 @@ def _read_link_bytes(iface: str) -> Dict[str, Optional[int]]:
 
 
 def _read_wireless_ifaces_from_proc() -> List[str]:
-    p = Path("/proc/net/wireless")
+    p = _proc_net("wireless")
     if not p.exists():
         return []
     out: List[str] = []
@@ -625,28 +634,33 @@ def _read_tailscale_status() -> Dict[str, object]:
     }
 
     if iface:
-        result["status"] = "connected" if (operstate == "up" or carrier == 1) else "disconnected"
+        # tailscale0 exists even when logged out - its presence proves nothing
+        result["status"] = "unknown" if (operstate == "up" or carrier == 1) else "disconnected"
 
-    tailscale_bin = shutil.which("tailscale")
-    if not tailscale_bin:
-        return result
-
-    code, out = _run_command([tailscale_bin, "status", "--json"], timeout_s=5)
-    if code != 0:
-        result["error"] = out[:300]
-        return result
-
+    # Der tailscaled-Socket liegt auf dem Host, im Container gibt es keine CLI -
+    # den echten Status kennt nur dbk-netcfg.
     try:
-        payload = json.loads(out)
-    except Exception:
-        result["error"] = "cannot parse tailscale status json"
+        code, body, _ = _netcfg_call("/api/tailscale", timeout_s=10)
+        payload = json.loads(body or b"{}")
+    except Exception as exc:
+        result["status"] = "unknown"
+        result["error"] = f"netcfg helper unreachable: {exc}"
         return result
 
-    backend_state = payload.get("BackendState")
-    self_data = payload.get("Self") if isinstance(payload.get("Self"), dict) else {}
-    ips = self_data.get("TailscaleIPs") if isinstance(self_data, dict) else []
-    hostname = self_data.get("HostName") if isinstance(self_data, dict) else None
-    online = self_data.get("Online") if isinstance(self_data, dict) else None
+    if code != 200 or not isinstance(payload, dict):
+        result["status"] = "unknown"
+        result["error"] = f"netcfg helper returned {code}"
+        return result
+
+    if payload.get("error"):
+        result["status"] = "unknown"
+        result["error"] = str(payload["error"])[:300]
+        return result
+
+    backend_state = payload.get("backend_state")
+    ips = payload.get("ips")
+    hostname = payload.get("hostname")
+    online = payload.get("online")
 
     result["backend_state"] = backend_state
     result["online"] = online
@@ -1311,3 +1325,59 @@ def shutdown_start() -> JSONResponse:
         "status": "started",
         "last_requested": SHUTDOWN_STATE["last_requested"],
     })
+
+
+# NetworkManager runs on the host, not in this container, so WLAN configuration
+# is delegated to dbk-netcfg.service and only proxied here.
+NETCFG_URL = os.environ.get("DBK_NETCFG_URL", "http://172.20.0.1:8091")
+
+
+def _netcfg_call(path: str, method: str = "GET", timeout_s: float = 30.0) -> Tuple[int, bytes, str]:
+    req = urllib.request.Request(f"{NETCFG_URL}{path}", method=method)
+    if method == "POST":
+        req.data = b"{}"
+        req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_s) as res:
+            return res.status, res.read(), res.headers.get("Content-Type", "application/json")
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read(), "application/json"
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Netzwerk-Helfer nicht erreichbar: {exc}")
+
+
+def _netcfg_json(path: str, method: str = "GET", timeout_s: float = 30.0) -> JSONResponse:
+    status, body, _ = _netcfg_call(path, method, timeout_s)
+    try:
+        payload = json.loads(body or b"{}")
+    except ValueError:
+        payload = {"error": "ungueltige Antwort vom Netzwerk-Helfer"}
+    return JSONResponse(payload, status_code=status)
+
+
+@app.get("/api/wifi/status")
+def wifi_status() -> JSONResponse:
+    return _netcfg_json("/api/status", timeout_s=10)
+
+
+@app.get("/api/wifi/scan")
+def wifi_scan() -> JSONResponse:
+    return _netcfg_json("/api/scan", timeout_s=30)
+
+
+@app.post("/api/wifi/hotspot/start")
+def wifi_hotspot_start() -> JSONResponse:
+    return _netcfg_json("/api/hotspot/start", method="POST", timeout_s=45)
+
+
+@app.post("/api/wifi/hotspot/stop")
+def wifi_hotspot_stop() -> JSONResponse:
+    return _netcfg_json("/api/hotspot/stop", method="POST", timeout_s=30)
+
+
+@app.get("/api/wifi/qr.svg")
+def wifi_qr() -> Response:
+    status, body, ctype = _netcfg_call("/api/hotspot/qr.svg", timeout_s=15)
+    if status != 200:
+        raise HTTPException(status_code=status, detail="kein Hotspot aktiv")
+    return Response(content=body, media_type=ctype, headers={"Cache-Control": "no-store"})
