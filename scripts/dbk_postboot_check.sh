@@ -15,6 +15,41 @@ SLEEP_STEP=3
 SHOT="/tmp/dbk-screen.png"
 IMPORT_TIMEOUT=5 # seconds
 
+report_throttled() {
+  # vcgencmd only exists on the host; report "unknown" instead of assuming health.
+  if ! command -v vcgencmd >/dev/null 2>&1; then
+    echo "$(date -Is) power: unknown (vcgencmd missing)"
+    return 0
+  fi
+
+  local raw
+  raw="$(vcgencmd get_throttled 2>/dev/null | sed -n 's/^throttled=0x//p')"
+  if [ -z "$raw" ]; then
+    echo "$(date -Is) power: unknown (no value from vcgencmd)"
+    return 0
+  fi
+
+  local v=$((16#$raw))
+  local now_uv=$(((v >> 0) & 1))
+  local now_cap=$(((v >> 1) & 1))
+  local now_thr=$(((v >> 2) & 1))
+  local now_soft=$(((v >> 3) & 1))
+  local ever_uv=$(((v >> 16) & 1))
+  local ever_cap=$(((v >> 17) & 1))
+  local ever_thr=$(((v >> 18) & 1))
+  local ever_soft=$(((v >> 19) & 1))
+
+  echo "$(date -Is) throttled: raw=0x$raw now(undervoltage=$now_uv freq_capped=$now_cap throttled=$now_thr soft_temp=$now_soft) since_boot(undervoltage=$ever_uv freq_capped=$ever_cap throttled=$ever_thr soft_temp=$ever_soft)"
+
+  if [ "$now_uv" = "1" ] || [ "$now_thr" = "1" ]; then
+    echo "$(date -Is) power: PROBLEM undervoltage/throttling active -> check PSU and cable"
+  elif [ "$ever_uv" = "1" ] || [ "$ever_thr" = "1" ]; then
+    echo "$(date -Is) power: WARNING undervoltage/throttling occurred since boot"
+  else
+    echo "$(date -Is) power: OK"
+  fi
+}
+
 check_backend() {
   curl -fsS --connect-timeout 1 --max-time 2 "$HEALTH_URL" >/dev/null 2>&1
 }
@@ -70,6 +105,8 @@ if check_backend; then
 else
   echo "$(date -Is) backend: FAIL (continuing with display check if possible)"
 fi
+
+report_throttled
 
 if ! x_ready; then
   echo "$(date -Is) X not ready -> skip display check (no recovery), exit 0"

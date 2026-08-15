@@ -32,6 +32,19 @@ function fmtUptime(value) {
   return `${String(hours).padStart(2, "0")}h ${String(mins).padStart(2, "0")}m`;
 }
 
+function fmtThrottleFlag(throttled, key) {
+  if (!throttled || throttled.status !== "ok") return "unknown";
+  const now = throttled.now?.[key];
+  const boot = throttled.since_boot?.[key];
+  if (typeof now !== "boolean" || typeof boot !== "boolean") return "unknown";
+  return `${now ? "YES" : "no"} / ${boot ? "YES" : "no"}`;
+}
+
+function fmtDiskUsage(disk) {
+  if (!disk || disk.status !== "ok" || typeof disk.used_pct !== "number") return "unknown";
+  return `${disk.used_pct} % (${disk.used_gb} / ${disk.total_gb} GB)`;
+}
+
 function fmtWifiStatus(wifi) {
   if (!wifi || typeof wifi !== "object") return "-";
   const status = wifi.status || "unknown";
@@ -189,6 +202,8 @@ export function renderDebug(extra) {
   const fan = system.fan || null;
   const wifi = system.wifi || null;
   const tailscale = system.tailscale || null;
+  const throttled = system.throttled || null;
+  const disk = system.disk || null;
   const apiBaseLabel = API_BASE ? API_BASE : "same-origin";
   const imgASrc = (els.imgA && els.imgA.currentSrc) ? els.imgA.currentSrc : (els.imgA?.src || "-");
   const imgBSrc = (els.imgB && els.imgB.currentSrc) ? els.imgB.currentSrc : (els.imgB?.src || "-");
@@ -222,6 +237,17 @@ export function renderDebug(extra) {
       ["uptime", fmtUptime(system.uptime_s)],
       ["system status", system.status || "-"],
       ["system error", system.error || "-"],
+    ]),
+    sectionMarkup("Power / Storage (now / since boot)", [
+      ["throttled raw", throttled?.status === "ok" ? (throttled.hex || "-") : "unknown"],
+      ["undervoltage", fmtThrottleFlag(throttled, "undervoltage")],
+      ["freq capped", fmtThrottleFlag(throttled, "freq_capped")],
+      ["throttling", fmtThrottleFlag(throttled, "throttled")],
+      ["soft temp limit", fmtThrottleFlag(throttled, "soft_temp_limit")],
+      ["source error", throttled?.error || "-"],
+      ["disk usage", fmtDiskUsage(disk)],
+      ["disk free", disk?.status === "ok" ? `${disk.free_gb} GB` : "unknown"],
+      ["disk level", disk?.level || "unknown"],
     ]),
     sectionMarkup("Wi-Fi", [
       ["status", fmtWifiStatus(wifi)],

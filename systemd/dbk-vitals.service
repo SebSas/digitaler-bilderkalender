@@ -1,0 +1,9 @@
+[Unit]
+Description=Publish DBK vitals to MQTT (retained)
+After=network-online.target dbk-netcfg.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/dbk-vitals.env
+ExecStart=/usr/bin/python3 /home/sebi/scripts/dbk_vitals_publish.py

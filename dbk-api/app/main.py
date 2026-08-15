@@ -1000,8 +1000,11 @@ def _run_shutdown_worker() -> None:
 def system_info() -> Dict[str, object]:
     """Basic system info for the kiosk UI (temp + uptime + wifi + tailscale)."""
     cpu_usage_pct = _read_cpu_usage_pct()
+    host_vitals = _read_host_vitals()
     return {
         "temp_c": _read_cpu_temp_c(),
+        "throttled": host_vitals["throttled"],
+        "disk": host_vitals["disk"],
         "uptime_s": _read_uptime_s(),
         "cpu_usage_pct": cpu_usage_pct,
         # Backward-compatible alias for clients expecting "consumption" naming.
@@ -1344,6 +1347,24 @@ def _netcfg_call(path: str, method: str = "GET", timeout_s: float = 30.0) -> Tup
         return exc.code, exc.read(), "application/json"
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Netzwerk-Helfer nicht erreichbar: {exc}")
+
+
+def _read_host_vitals() -> Dict[str, object]:
+    """vcgencmd and the SD card are host-only; the netcfg helper is the only way in."""
+    try:
+        status, body, _ = _netcfg_call("/api/vitals", timeout_s=8)
+        if status != 200:
+            raise ValueError(f"HTTP {status}")
+        payload = json.loads(body or b"{}")
+        error = "keine Daten"
+    except Exception as exc:
+        payload = {}
+        error = str(exc)
+    fallback = {"status": "unknown", "error": error}
+    return {
+        "throttled": payload.get("throttled") or dict(fallback),
+        "disk": payload.get("disk") or dict(fallback),
+    }
 
 
 def _netcfg_json(path: str, method: str = "GET", timeout_s: float = 30.0) -> JSONResponse:

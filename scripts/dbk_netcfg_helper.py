@@ -104,6 +104,85 @@ def default_route_iface():
     return None
 
 
+THROTTLE_BITS = {
+    "undervoltage": 0,
+    "freq_capped": 1,
+    "throttled": 2,
+    "soft_temp_limit": 3,
+}
+DISK_WARN_PCT = 80.0
+DISK_CRIT_PCT = 90.0
+
+
+def throttled_status():
+    """Decode `vcgencmd get_throttled`. Report "unknown" rather than guessing."""
+    result = {
+        "status": "unknown",
+        "raw": None,
+        "hex": None,
+        "now": {},
+        "since_boot": {},
+        "error": None,
+    }
+    try:
+        proc = subprocess.run(
+            ["vcgencmd", "get_throttled"], capture_output=True, text=True, timeout=5
+        )
+    except Exception as exc:
+        result["error"] = str(exc)
+        return result
+
+    match = re.search(r"throttled=0x([0-9a-fA-F]+)", proc.stdout or "")
+    if proc.returncode != 0 or not match:
+        result["error"] = (proc.stderr or proc.stdout or "vcgencmd ohne Ergebnis").strip()
+        return result
+
+    value = int(match.group(1), 16)
+    result["status"] = "ok"
+    result["raw"] = value
+    result["hex"] = "0x%x" % value
+    for name, bit in THROTTLE_BITS.items():
+        result["now"][name] = bool(value & (1 << bit))
+        result["since_boot"][name] = bool(value & (1 << (bit + 16)))
+    return result
+
+
+def disk_status(path="/"):
+    result = {"status": "unknown", "error": None}
+    try:
+        st = os.statvfs(path)
+    except OSError as exc:
+        result["error"] = str(exc)
+        return result
+
+    total = st.f_blocks * st.f_frsize
+    used = total - st.f_bfree * st.f_frsize
+    free = st.f_bavail * st.f_frsize
+    used_pct = round(used / total * 100, 1) if total else None
+    level = "unknown"
+    if used_pct is not None:
+        level = "critical" if used_pct >= DISK_CRIT_PCT else (
+            "warn" if used_pct >= DISK_WARN_PCT else "ok"
+        )
+    result.update({
+        "status": "ok",
+        "total_gb": round(total / 1e9, 1),
+        "used_gb": round(used / 1e9, 1),
+        "free_gb": round(free / 1e9, 1),
+        "used_pct": used_pct,
+        "level": level,
+    })
+    return result
+
+
+def vitals():
+    return {
+        "throttled": throttled_status(),
+        "disk": disk_status(),
+        "ts": int(time.time()),
+    }
+
+
 def set_state(**kwargs):
     with _lock:
         _state.update(kwargs)
@@ -382,6 +461,8 @@ class Handler(BaseHTTPRequestHandler):
             info = tailscale_status()
             info["default_route_iface"] = default_route_iface()
             self._json(200, info)
+        elif path in ("/api/vitals", "/vitals"):
+            self._json(200, vitals())
         elif path in ("/api/scan", "/scan"):
             self._json(200, {"networks": scan_networks()})
         elif path == "/api/hotspot/qr.svg":
