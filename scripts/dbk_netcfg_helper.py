@@ -14,6 +14,7 @@ import string
 import subprocess
 import threading
 import time
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 WIFI_DEV = "wlan0"
@@ -465,6 +466,16 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, vitals())
         elif path in ("/api/scan", "/scan"):
             self._json(200, {"networks": scan_networks()})
+        elif path == "/api/qr.svg":
+            query = urllib.parse.parse_qs(self.path.partition("?")[2])
+            data = (query.get("data") or [""])[0]
+            if not data:
+                self._json(400, {"error": "data fehlt"})
+                return
+            try:
+                self._send(200, qr_svg(data), "image/svg+xml")
+            except Exception as exc:
+                self._json(500, {"error": str(exc)})
         elif path == "/api/hotspot/qr.svg":
             with _lock:
                 info = _state["hotspot"]

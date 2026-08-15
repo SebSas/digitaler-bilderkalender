@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Bilderkalender — Einstellungen</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 24px 18px 60px;
+      background: #0e1013;
+      color: #e6ebf0;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      font-size: 17px;
+      line-height: 1.5;
+    }
+    h1 { font-size: 24px; margin: 0 0 4px; }
+    .sub { color: #9aa3ad; margin: 0 0 28px; font-size: 15px; }
+    .card {
+      background: #16191e;
+      border-radius: 16px;
+      padding: 20px 18px;
+      margin-bottom: 20px;
+    }
+    h2 { font-size: 18px; margin: 0 0 14px; }
+    label { display: block; font-size: 14px; color: #9aa3ad; margin: 14px 0 6px; }
+    input, select, button {
+      width: 100%;
+      font-size: 17px;
+      font-family: inherit;
+      border-radius: 12px;
+      border: 1px solid #333a42;
+      background: #0e1013;
+      color: #e6ebf0;
+      padding: 14px 12px;
+    }
+    button {
+      margin-top: 22px;
+      border: none;
+      background: #2d6cdf;
+      color: #fff;
+      font-weight: 600;
+      padding: 16px 12px;
+    }
+    button:disabled { opacity: .6; }
+    .msg { margin-top: 16px; font-size: 15px; min-height: 22px; }
+    .ok { color: #7bd88f; }
+    .err { color: #ff8b8b; }
+    .current { font-size: 15px; color: #9aa3ad; }
+  </style>
+</head>
+<body>
+  <h1>Bilderkalender</h1>
+  <p class="sub">Einstellungen — Änderungen wirken direkt auf dem Gerät.</p>
+
+  <div class="card">
+    <h2>Wetter &amp; Feiertage</h2>
+    <div id="current" class="current">Wird geladen …</div>
+    <label for="name">Ort</label>
+    <input id="name" type="text" autocapitalize="words" autocomplete="off" placeholder="z. B. Nufringen">
+    <label for="state">Bundesland</label>
+    <select id="state"></select>
+    <button id="save" type="button">Speichern</button>
+    <div id="msg" class="msg"></div>
+  </div>
+
+  <script>
+    const STATES = {
+      BW: "Baden-Württemberg", BY: "Bayern", BE: "Berlin", BB: "Brandenburg",
+      HB: "Bremen", HH: "Hamburg", HE: "Hessen", MV: "Mecklenburg-Vorpommern",
+      NI: "Niedersachsen", NW: "Nordrhein-Westfalen", RP: "Rheinland-Pfalz",
+      SL: "Saarland", SN: "Sachsen", ST: "Sachsen-Anhalt", SH: "Schleswig-Holstein",
+      TH: "Thüringen",
+    };
+
+    const els = {
+      name: document.getElementById("name"),
+      state: document.getElementById("state"),
+      save: document.getElementById("save"),
+      msg: document.getElementById("msg"),
+      current: document.getElementById("current"),
+    };
+
+    for (const [code, label] of Object.entries(STATES)) {
+      const opt = document.createElement("option");
+      opt.value = code;
+      opt.textContent = label;
+      els.state.appendChild(opt);
+    }
+
+    function setMsg(text, cls) {
+      els.msg.textContent = text;
+      els.msg.className = "msg" + (cls ? " " + cls : "");
+    }
+
+    function renderCurrent(location) {
+      const display = location.resolved_display_name || `${location.name}, ${STATES[location.state] || location.state}`;
+      els.current.textContent = `Aktuell: ${display}`;
+      els.name.value = location.name || "";
+      els.state.value = location.state || "BW";
+    }
+
+    async function load() {
+      try {
+        const res = await fetch("/api/config", { cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        renderCurrent(data.settings.location || {});
+      } catch (e) {
+        els.current.textContent = "Einstellungen nicht lesbar.";
+        setMsg(String(e.message || e), "err");
+      }
+    }
+
+    async function save() {
+      const name = els.name.value.trim();
+      if (!name) {
+        setMsg("Bitte einen Ort eingeben.", "err");
+        return;
+      }
+      els.save.disabled = true;
+      setMsg("Ort wird geprüft …");
+      try {
+        const res = await fetch("/api/config", {
+          method: "POST",
+          cache: "no-store",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ location: { name, state: els.state.value } }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+        renderCurrent(data.settings.location);
+        setMsg("Gespeichert. Das Gerät übernimmt den Ort innerhalb einer Minute.", "ok");
+      } catch (e) {
+        setMsg(String(e.message || e), "err");
+      } finally {
+        els.save.disabled = false;
+      }
+    }
+
+    els.save.addEventListener("click", save);
+    load();
+  </script>
+</body>
+</html>

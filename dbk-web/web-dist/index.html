@@ -261,7 +261,7 @@
 
     .wifi-btn {
       position: absolute;
-      right: 84px;
+      right: 152px;
       bottom: 14px;
       height: 56px;
       padding: 0 20px;
@@ -281,7 +281,35 @@
     .wifi-btn svg { width: 28px; height: 28px; display: block; }
     .wifi-btn:active { transform: scale(.97); }
 
-    .wifi-panel {
+    .cfg-btn {
+      position: absolute;
+      right: 84px;
+      bottom: 14px;
+      width: 56px;
+      height: 56px;
+      border-radius: 999px;
+      border: 2px solid rgba(160,210,255,.92);
+      background: rgba(0,0,0,.30);
+      color: rgba(200,228,255,.98);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 12px 24px rgba(0,0,0,.35);
+    }
+
+    .cfg-btn svg { width: 32px; height: 32px; display: block; }
+    .cfg-btn:active { transform: scale(.97); }
+
+    .cfg-url {
+      margin-top: 16px;
+      font-size: 20px;
+      color: #cfd6dd;
+      font-family: ui-monospace, monospace;
+      word-break: break-all;
+    }
+
+    .wifi-panel, .cfg-panel {
       position: fixed;
       inset: 0;
       z-index: 60;
@@ -290,7 +318,7 @@
       background: rgba(0,0,0,.82);
     }
 
-    .wifi-card {
+    .wifi-card, .cfg-card {
       background: #14161a;
       border-radius: 22px;
       padding: 34px 40px;
@@ -299,15 +327,15 @@
       box-shadow: 0 30px 70px rgba(0,0,0,.6);
     }
 
-    .wifi-card h2 { margin: 0 0 6px; font-size: 34px; }
-    .wifi-card .lead { margin: 0 0 22px; color: #9aa3ad; font-size: 19px; }
-    .wifi-qr { background: #fff; padding: 14px; border-radius: 16px; display: inline-block; }
-    .wifi-qr img { width: 320px; height: 320px; display: block; }
+    .wifi-card h2, .cfg-card h2 { margin: 0 0 6px; font-size: 34px; }
+    .wifi-card .lead, .cfg-card .lead { margin: 0 0 22px; color: #9aa3ad; font-size: 19px; }
+    .wifi-qr, .cfg-qr { background: #fff; padding: 14px; border-radius: 16px; display: inline-block; }
+    .wifi-qr img, .cfg-qr img { width: 320px; height: 320px; display: block; }
     .wifi-creds { margin-top: 16px; font-size: 20px; color: #cfd6dd; }
     .wifi-creds b { color: #fff; font-family: ui-monospace, monospace; letter-spacing: .5px; }
     .wifi-msg { margin-top: 20px; font-size: 21px; line-height: 1.45; color: #e6ebf0; min-height: 30px; }
-    .wifi-actions { margin-top: 26px; display: flex; gap: 14px; justify-content: center; }
-    .wifi-actions button {
+    .wifi-actions, .cfg-actions { margin-top: 26px; display: flex; gap: 14px; justify-content: center; }
+    .wifi-actions button, .cfg-actions button {
       padding: 15px 26px;
       font-size: 19px;
       font-weight: 600;
@@ -647,6 +675,12 @@
             </svg>
             WLAN einrichten
           </button>
+          <button id="settingsBtn" class="cfg-btn" type="button" aria-label="Einstellungen">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="3.2" />
+              <path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z" />
+            </svg>
+          </button>
           <button id="shutdownBtn" class="shutdown-btn" type="button" aria-label="System herunterfahren">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M12 2v9" />
@@ -678,6 +712,21 @@
         <div id="wifiMsg" class="wifi-msg"></div>
         <div class="wifi-actions">
           <button id="wifiCloseBtn" type="button">Schließen</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="settingsPanel" class="cfg-panel">
+      <div class="cfg-card">
+        <h2>Einstellungen</h2>
+        <p class="lead">QR-Code mit dem Handy scannen — die Einstellungen werden dann am Handy eingegeben.</p>
+        <div id="settingsQrBox" class="cfg-qr" style="display:none">
+          <img id="settingsQr" alt="QR-Code zur Einstellungsseite">
+        </div>
+        <div id="settingsUrl" class="cfg-url">—</div>
+        <div id="settingsMsg" class="wifi-msg"></div>
+        <div class="cfg-actions">
+          <button id="settingsCloseBtn" type="button">Schließen</button>
         </div>
       </div>
     </div>

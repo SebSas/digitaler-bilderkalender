@@ -6,6 +6,7 @@ import { hashStringToInt, shuffleInPlace } from "./shuffle.js";
 import { updateClock } from "./time.js";
 import { bootFooter } from "./footer.js";
 import { bootWifi } from "./wifi.js";
+import { bootSettings } from "./settings.js";
 import { setLastError, state } from "./state.js";
 
 async function boot() {
@@ -93,4 +94,5 @@ updateClock(els);
 setInterval(() => updateClock(els), 15000);
 bootFooter();
 bootWifi();
+bootSettings();
 boot();

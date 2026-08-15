@@ -6,6 +6,7 @@ import { iconSvg } from "./icons.js";
 const FOOTER_IDLE_MS = 15000;
 const WEATHER_REFRESH_INTERVAL_MS = 45 * 60 * 1000;
 const WEATHER_MIN_REFRESH_MS = 30 * 60 * 1000;
+const CONFIG_POLL_MS = 60 * 1000;
 
 const ICON_EMOJI = {
   sunny: "☀️",
@@ -25,6 +26,7 @@ let holidaysData = null;
 let footerExpanded = false;
 let footerIdleTimer = null;
 let weatherRefreshTimer = null;
+let configPollTimer = null;
 let weatherRefreshInFlight = false;
 let lastWeatherRefresh = 0;
 let shutdownInFlight = false;
@@ -240,10 +242,25 @@ function renderCalendar() {
 
 async function fetchLocationConfig() {
   try {
-    return await fetchJsonWithTimeout("/config/location.json", 6000);
+    const data = await fetchJsonWithTimeout("/api/config", 6000);
+    return data?.settings?.location || null;
   } catch (e) {
     return null;
   }
+}
+
+// The place can be changed from the phone while the kiosk keeps running.
+async function pollLocationConfig() {
+  const next = await fetchLocationConfig();
+  if (!next || !next.name || !next.state) return;
+  if (next.name === locationConfig?.name && next.state === locationConfig?.state) return;
+  locationConfig = next;
+  state.footer.location = next;
+  renderLocation();
+  lastWeatherRefresh = 0;
+  fetchGeocode(next).catch(() => {});
+  refreshWeather();
+  refreshHolidays();
 }
 
 async function fetchGeocode(location) {
@@ -376,4 +393,7 @@ export async function bootFooter() {
 
   if (weatherRefreshTimer) clearInterval(weatherRefreshTimer);
   weatherRefreshTimer = setInterval(refreshWeather, WEATHER_REFRESH_INTERVAL_MS);
+
+  if (configPollTimer) clearInterval(configPollTimer);
+  configPollTimer = setInterval(() => pollLocationConfig().catch(() => {}), CONFIG_POLL_MS);
 }

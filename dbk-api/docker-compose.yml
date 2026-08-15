@@ -13,6 +13,7 @@ services:
     volumes:
       - /home/sebi/dbk-album/Digi Bilderkalender Ana:/album:ro
       - ./cache:/cache
+      - ./config:/config
       - /home/sebi/immichdl:/home/sebi/immichdl:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - /sys:/sys:ro

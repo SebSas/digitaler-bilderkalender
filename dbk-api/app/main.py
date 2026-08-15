@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 import threading
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from pathlib import Path
@@ -1401,4 +1401,83 @@ def wifi_qr() -> Response:
     status, body, ctype = _netcfg_call("/api/hotspot/qr.svg", timeout_s=15)
     if status != 200:
         raise HTTPException(status_code=status, detail="kein Hotspot aktiv")
+    return Response(content=body, media_type=ctype, headers={"Cache-Control": "no-store"})
+
+
+# Device settings. Bind-mounted from the host so they survive an image rebuild.
+CONFIG_DIR = Path(os.environ.get("DBK_CONFIG_DIR", "/config"))
+SETTINGS_PATH = CONFIG_DIR / "settings.json"
+DEFAULT_SETTINGS: Dict[str, object] = {
+    "version": 1,
+    "location": {"name": "Nufringen", "state": "BW"},
+}
+
+
+def _load_settings() -> Dict[str, object]:
+    stored = _read_json(SETTINGS_PATH)
+    merged = json.loads(json.dumps(DEFAULT_SETTINGS))
+    if isinstance(stored, dict):
+        for key, value in stored.items():
+            if isinstance(value, dict) and isinstance(merged.get(key), dict):
+                merged[key].update(value)
+            else:
+                merged[key] = value
+    return merged
+
+
+def _save_settings(data: Dict[str, object]) -> None:
+    _ensure_dir(CONFIG_DIR)
+    tmp = SETTINGS_PATH.with_name(SETTINGS_PATH.name + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(SETTINGS_PATH)
+
+
+def _geocode_checked(name: str, state: str) -> Dict[str, object]:
+    """Two attempts: the device's Wi-Fi drops the TLS handshake now and then."""
+    last: Optional[Exception] = None
+    for _ in range(2):
+        try:
+            return _fetch_geocode(name, state)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Ort nicht gefunden")
+        except Exception as exc:
+            last = exc
+    raise HTTPException(status_code=503, detail=f"Ortspruefung fehlgeschlagen: {last}")
+
+
+@app.get("/api/config")
+def get_config() -> JSONResponse:
+    return JSONResponse({"status": "ok", "settings": _load_settings()})
+
+
+@app.post("/api/config")
+def set_config(patch: Dict[str, object] = Body(...)) -> JSONResponse:
+    settings = _load_settings()
+    location = patch.get("location")
+    if isinstance(location, dict):
+        name = str(location.get("name") or "").strip()
+        state = str(location.get("state") or "").strip().upper()
+        if not name:
+            raise HTTPException(status_code=400, detail="Ort fehlt")
+        if state not in STATE_NAMES:
+            raise HTTPException(status_code=400, detail="Bundesland unbekannt")
+        geo = _geocode_checked(name, state)
+        _write_json(_geocode_cache_path(_normalize_key(state), _normalize_key(name)), geo)
+        settings["location"] = {
+            "name": name,
+            "state": state,
+            "resolved_display_name": geo.get("resolved_display_name"),
+        }
+    settings["updated_at"] = _now_iso()
+    _save_settings(settings)
+    return JSONResponse({"status": "ok", "settings": settings})
+
+
+@app.get("/api/qr.svg")
+def qr_svg(data: str) -> Response:
+    """The QR generator lives in the host helper; the container has no qrcode lib."""
+    query = urllib.parse.urlencode({"data": data})
+    status, body, ctype = _netcfg_call(f"/api/qr.svg?{query}", timeout_s=15)
+    if status != 200:
+        raise HTTPException(status_code=status, detail="QR-Code nicht erzeugbar")
     return Response(content=body, media_type=ctype, headers={"Cache-Control": "no-store"})
