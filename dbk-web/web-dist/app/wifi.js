@@ -121,14 +121,19 @@ function closePanel() {
 
 export function bootWifi() {
   if (els.wifiBtn) {
-    els.wifiBtn.addEventListener("click", (ev) => {
+    // pointerdown statt click, siehe settings.js: click wartet das Loslassen ab.
+    els.wifiBtn.addEventListener("pointerdown", (ev) => {
       ev.stopPropagation();
       openPanel();
     });
-    els.wifiBtn.addEventListener("touchstart", (ev) => ev.stopPropagation(), { passive: true });
+    els.wifiBtn.addEventListener("click", (ev) => ev.stopPropagation());
   }
   if (els.wifiCloseBtn) {
-    els.wifiCloseBtn.addEventListener("click", closePanel);
+    els.wifiCloseBtn.addEventListener("pointerdown", (ev) => {
+      ev.stopPropagation();
+      closePanel();
+    });
+    els.wifiCloseBtn.addEventListener("click", (ev) => ev.stopPropagation());
   }
   poll();
 }

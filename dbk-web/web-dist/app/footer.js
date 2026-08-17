@@ -531,8 +531,10 @@ async function requestShutdown() {
 
 function attachFooterHandlers() {
   if (els.footerCollapsed) {
-    els.footerCollapsed.addEventListener("click", () => setExpanded(!footerExpanded));
-    els.footerCollapsed.addEventListener("touchstart", () => setExpanded(!footerExpanded), { passive: true });
+    // Ein einziger pointerdown-Handler deckt Maus und Touch ab und reagiert beim
+    // Aufsetzen statt beim Loslassen. Die frühere Kombination click+touchstart
+    // hätte auf einem Gerät, das beides liefert, zweimal umgeschaltet.
+    els.footerCollapsed.addEventListener("pointerdown", () => setExpanded(!footerExpanded));
   }
   if (els.footerExpanded) {
     els.footerExpanded.addEventListener("click", resetFooterIdleTimer);
