@@ -3,7 +3,14 @@
   "location": {
     "name": "Nufringen",
     "state": "BW",
-    "resolved_display_name": "Nufringen, Baden-Württemberg, Deutschland"
+    "lat": 48.62253,
+    "lon": 8.89009,
+    "timezone": "Europe/Berlin",
+    "admin1": "Baden-Württemberg",
+    "district": "Landkreis Böblingen",
+    "municipality": "Nufringen",
+    "postcode": "",
+    "display_name": "Nufringen, Baden-Württemberg, Landkreis Böblingen"
   },
-  "updated_at": "2026-08-15T10:15:34+00:00"
+  "updated_at": "2026-08-16T20:27:30+00:00"
 }

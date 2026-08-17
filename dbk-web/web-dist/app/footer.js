@@ -7,6 +7,9 @@ const FOOTER_IDLE_MS = 15000;
 const WEATHER_REFRESH_INTERVAL_MS = 45 * 60 * 1000;
 const WEATHER_MIN_REFRESH_MS = 30 * 60 * 1000;
 const CONFIG_POLL_MS = 60 * 1000;
+// Die Liste scrollt, sie darf also alles zeigen, was der Tag hergibt.
+const EVENTS_DAY_MAX = 40;
+const MAX_DAY_DOTS = 4;
 
 const ICON_EMOJI = {
   sunny: "☀️",
@@ -23,6 +26,10 @@ const ICON_EMOJI = {
 let locationConfig = null;
 let weatherData = null;
 let holidaysData = null;
+let eventsData = [];
+let eventsLoaded = false;
+let eventsSerialized = "";
+let selectedYmd = null;
 let footerExpanded = false;
 let footerIdleTimer = null;
 let weatherRefreshTimer = null;
@@ -66,9 +73,17 @@ function setExpanded(value) {
   if (els.footerExpanded) els.footerExpanded.setAttribute("aria-hidden", value ? "false" : "true");
   if (value) {
     resetFooterIdleTimer();
-  } else if (footerIdleTimer) {
+    return;
+  }
+  if (footerIdleTimer) {
     clearTimeout(footerIdleTimer);
     footerIdleTimer = null;
+  }
+  // A closed footer forgets the tapped day, so it reopens on the preview.
+  if (selectedYmd) {
+    selectedYmd = null;
+    renderCalendar();
+    renderEventsList();
   }
 }
 
@@ -95,6 +110,155 @@ function renderHoliday() {
   const text = truncate(`Feiertag: ${holiday.name}`, 28);
   label.textContent = text;
   label.style.display = "block";
+}
+
+function holidayNameOn(ymd) {
+  if (holidaysData?.status !== "ok") return null;
+  const hit = (holidaysData.days || []).find((d) => d.date === ymd);
+  return hit ? hit.name : null;
+}
+
+function ymdOf(year, month, day) {
+  return new Date(year, month - 1, day);
+}
+
+function isSameDay(date, year, month, day) {
+  return date.getFullYear() === year && date.getMonth() + 1 === month && date.getDate() === day;
+}
+
+// Birthdays repeat every year. Appointments match their own date, or any day
+// inside their range when one is set.
+function eventsOn(date) {
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  return eventsData.filter((e) => {
+    if (e.type === "birthday") return e.month === month && e.day === day;
+    const start = ymdOf(e.year, e.month, e.day);
+    const end = e.end_day ? ymdOf(e.end_year, e.end_month, e.end_day) : start;
+    const probe = ymdOf(date.getFullYear(), month, day);
+    return probe >= start && probe <= end;
+  });
+}
+
+// On a multi-day appointment the start time belongs to the first day and the
+// end time to the last one; the days in between carry no time at all.
+function timeLabelFor(event, date) {
+  if (event.type !== "appointment") return "";
+  if (!event.end_day) {
+    if (event.time && event.time_end) return `${event.time}–${event.time_end}`;
+    return event.time || "";
+  }
+  if (isSameDay(date, event.year, event.month, event.day)) {
+    return event.time ? `ab ${event.time}` : "";
+  }
+  if (isSameDay(date, event.end_year, event.end_month, event.end_day)) {
+    return event.time_end ? `bis ${event.time_end}` : "";
+  }
+  return "";
+}
+
+const KIND_ORDER = { holiday: 0, birthday: 1, appointment: 2 };
+
+// One flat list per day: holiday first, then the user's own entries.
+function occurrencesOn(date) {
+  const entries = [];
+  const holiday = holidayNameOn(toYmd(date));
+  if (holiday) entries.push({ kind: "holiday", title: holiday, time: "" });
+  for (const e of eventsOn(date)) {
+    const title = e.type === "birthday" && e.year
+      ? `${e.title} (${date.getFullYear() - e.year})`
+      : e.title;
+    entries.push({ id: e.id, kind: e.type, title, time: timeLabelFor(e, date) });
+  }
+  entries.sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
+  return entries;
+}
+
+function dotFor(kind) {
+  const dot = document.createElement("span");
+  dot.className = `calendar-dot ${kind}`;
+  return dot;
+}
+
+// One dot per entry, but a cell must not turn into a string of beads: beyond the
+// cap the last dot is a neutral "there is more" marker. Tapping the day shows all.
+function appendDots(container, entries) {
+  const overflow = entries.length > MAX_DAY_DOTS;
+  const visible = overflow ? MAX_DAY_DOTS - 1 : entries.length;
+  entries.slice(0, visible).forEach((entry) => container.appendChild(dotFor(entry.kind)));
+  if (overflow) container.appendChild(dotFor("more"));
+}
+
+function renderEventsBadge() {
+  const label = els.eventsLabel;
+  if (!label) return;
+  if (!eventsLoaded) {
+    label.style.display = "none";
+    return;
+  }
+  const entries = occurrencesOn(new Date());
+  label.innerHTML = "";
+  [...new Set(entries.map((e) => e.kind))].forEach((kind) => label.appendChild(dotFor(kind)));
+  const text = document.createElement("span");
+  if (!entries.length) text.textContent = "Keine Ereignisse heute";
+  else if (entries.length === 1) text.textContent = "Ein Ereignis heute";
+  else text.textContent = `${entries.length} Ereignisse heute`;
+  label.appendChild(text);
+  label.style.display = "flex";
+}
+
+function eventRow(entry, whenText, isToday) {
+  const row = document.createElement("div");
+  row.className = "event-row" + (isToday ? " is-today" : "");
+  const when = document.createElement("span");
+  when.className = "event-when";
+  when.textContent = whenText;
+  const title = document.createElement("span");
+  title.className = "event-title";
+  title.textContent = entry.title;
+  row.appendChild(dotFor(entry.kind));
+  row.appendChild(when);
+  row.appendChild(title);
+  return row;
+}
+
+// Immer genau EIN Tag: beim Aufklappen heute, nach einem Tipp der gewaehlte Tag.
+// Der Block bleibt dabei dauerhaft sichtbar, damit sich im Panel nichts bewegt.
+function renderEventsList() {
+  const box = els.eventsExpanded;
+  const list = els.eventsList;
+  if (!box || !list) return;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const [y, m, d] = (selectedYmd || toYmd(today)).split("-").map(Number);
+  const day = ymdOf(y, m, d);
+  const isToday = toYmd(day) === toYmd(today);
+
+  if (els.eventsHeader) {
+    const label = day.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long" });
+    els.eventsHeader.textContent = isToday ? `Heute — ${label}` : label;
+  }
+
+  list.innerHTML = "";
+  const entries = occurrencesOn(day);
+  if (!entries.length) {
+    const empty = document.createElement("div");
+    empty.className = "events-empty";
+    empty.textContent = "Keine Ereignisse an diesem Tag";
+    list.appendChild(empty);
+  } else {
+    entries.slice(0, EVENTS_DAY_MAX).forEach((entry) => {
+      list.appendChild(eventRow(entry, entry.time, isToday));
+    });
+  }
+  box.style.display = "flex";
+}
+
+function selectDay(ymd) {
+  selectedYmd = selectedYmd === ymd ? null : ymd;
+  renderCalendar();
+  renderEventsList();
 }
 
 function renderLocation() {
@@ -223,18 +387,30 @@ function renderCalendar() {
       dateObj = new Date(year, month, dayIndex);
     }
 
+    const ymd = toYmd(dateObj);
     const cell = document.createElement("div");
     cell.className = "calendar-day";
     if (!inMonth) cell.classList.add("dim");
-    if (toYmd(dateObj) === toYmd(now)) cell.classList.add("today");
-    if (holidaySet.has(toYmd(dateObj))) cell.classList.add("holiday");
+    if (ymd === toYmd(now)) cell.classList.add("today");
+    if (holidaySet.has(ymd)) cell.classList.add("holiday");
+    if (ymd === selectedYmd) cell.classList.add("selected");
     cell.textContent = String(dateObj.getDate());
 
-    if (holidaySet.has(toYmd(dateObj))) {
-      const dot = document.createElement("span");
-      dot.className = "holiday-dot";
-      cell.appendChild(dot);
+    const entries = occurrencesOn(dateObj);
+    if (entries.length) {
+      const dots = document.createElement("span");
+      dots.className = "calendar-dots";
+      appendDots(dots, entries);
+      cell.appendChild(dots);
     }
+
+    // pointerdown statt click: click feuert auf Touch erst nach touchend und der
+    // Gestenerkennung des Browsers — das fuehlte sich beim Antippen traege an.
+    cell.addEventListener("pointerdown", (ev) => {
+      ev.stopPropagation();
+      resetFooterIdleTimer();
+      selectDay(ymd);
+    });
 
     els.calendarGrid.appendChild(cell);
   }
@@ -258,15 +434,8 @@ async function pollLocationConfig() {
   state.footer.location = next;
   renderLocation();
   lastWeatherRefresh = 0;
-  fetchGeocode(next).catch(() => {});
   refreshWeather();
   refreshHolidays();
-}
-
-async function fetchGeocode(location) {
-  const name = encodeURIComponent(location.name);
-  const state = encodeURIComponent(location.state);
-  return fetchJsonWithTimeout(`/api/geocode?name=${name}&state=${state}&mode=refresh`, 8000);
 }
 
 async function fetchWeather(location, mode) {
@@ -307,6 +476,26 @@ async function refreshHolidays() {
     state.footer.holidaysStatus = holidaysData?.status || null;
     state.footer.holidaysUpdatedAt = holidaysData?.updated_at || null;
     renderHoliday();
+    renderCalendar();
+    renderEventsBadge();
+    renderEventsList();
+  } catch (e) {}
+}
+
+// Events are edited from the phone, so they are polled like the location.
+// Re-rendering only on a real change keeps the idle CPU flat.
+async function refreshEvents() {
+  try {
+    const data = await fetchJsonWithTimeout("/api/events", 6000);
+    const next = Array.isArray(data?.events) ? data.events : [];
+    const serialized = JSON.stringify(next);
+    if (eventsLoaded && serialized === eventsSerialized) return;
+    eventsSerialized = serialized;
+    eventsData = next;
+    eventsLoaded = true;
+    state.footer.eventsCount = next.length;
+    renderEventsBadge();
+    renderEventsList();
     renderCalendar();
   } catch (e) {}
 }
@@ -369,8 +558,8 @@ export async function bootFooter() {
   if (!locationConfig) return;
   renderLocation();
 
-  fetchGeocode(locationConfig).catch(() => {});
-
+  // No geocoding here: GET /api/config already refreshes the geocode cache
+  // from the stored coordinates, so the weather fetch always finds it.
   fetchWeather(locationConfig, "cache").then((data) => {
     weatherData = data;
     state.footer.weatherStatus = weatherData?.status || null;
@@ -390,10 +579,14 @@ export async function bootFooter() {
 
   refreshWeather();
   refreshHolidays();
+  refreshEvents();
 
   if (weatherRefreshTimer) clearInterval(weatherRefreshTimer);
   weatherRefreshTimer = setInterval(refreshWeather, WEATHER_REFRESH_INTERVAL_MS);
 
   if (configPollTimer) clearInterval(configPollTimer);
-  configPollTimer = setInterval(() => pollLocationConfig().catch(() => {}), CONFIG_POLL_MS);
+  configPollTimer = setInterval(() => {
+    pollLocationConfig().catch(() => {});
+    refreshEvents().catch(() => {});
+  }, CONFIG_POLL_MS);
 }

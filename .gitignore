@@ -21,3 +21,7 @@ yarn-debug.log*
 yarn-error.log*
 __pycache__
 immichdl/.env
+
+# Laufzeit-Nutzerdaten: Geburtstage/Termine sind personenbezogen und
+# gehoeren in die Geraete-Sicherung, nicht in die Versionsverwaltung.
+dbk-api/config/events.json

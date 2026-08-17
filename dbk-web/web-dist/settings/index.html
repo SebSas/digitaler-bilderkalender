@@ -49,6 +49,110 @@
     .ok { color: #7bd88f; }
     .err { color: #ff8b8b; }
     .current { font-size: 15px; color: #9aa3ad; }
+    .current strong { color: #e6ebf0; font-weight: 600; }
+
+    .results { margin-top: 16px; display: none; }
+    .results.show { display: block; }
+    .hit {
+      width: 100%;
+      margin: 0 0 8px;
+      padding: 12px 14px;
+      text-align: left;
+      background: #0e1013;
+      border: 1px solid #333a42;
+      border-radius: 12px;
+      color: #e6ebf0;
+      font-weight: 400;
+    }
+    .hit-name { font-size: 17px; font-weight: 600; }
+    .hit-where { font-size: 14px; color: #9aa3ad; margin-top: 2px; }
+    .hint { font-size: 14px; color: #9aa3ad; margin-top: 10px; }
+    .hint.lead { margin: -6px 0 4px; }
+
+    .seg { display: flex; gap: 8px; margin-top: 4px; }
+    .seg-btn {
+      margin-top: 0;
+      background: #0e1013;
+      border: 1px solid #333a42;
+      color: #9aa3ad;
+      font-weight: 600;
+      padding: 12px 10px;
+    }
+    .seg-btn.active { background: #2d6cdf; border-color: #2d6cdf; color: #fff; }
+
+    /* Grid with minmax(0,…) instead of flex: Safari gives date/time inputs an
+       intrinsic minimum width that a flex item does not force down, so two of
+       them side by side end up overlapping on the iPhone. */
+    .row2 {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 10px;
+    }
+    .row2 > div { min-width: 0; }
+
+    input[type="date"], input[type="time"] {
+      min-width: 0;
+      max-width: 100%;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+
+    input[type="checkbox"] { width: auto; margin: 0 10px 0 0; vertical-align: middle; }
+    .check { display: flex; align-items: center; color: #e6ebf0; font-size: 15px; margin: 16px 0 0; }
+
+    .month-nav {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 26px;
+      padding-top: 18px;
+      border-top: 1px solid #262c33;
+    }
+
+    .month-btn {
+      width: 52px;
+      flex: 0 0 auto;
+      margin-top: 0;
+      background: #0e1013;
+      border: 1px solid #333a42;
+      color: #e6ebf0;
+      font-size: 22px;
+      line-height: 1;
+      padding: 12px 0;
+    }
+
+    .month-label {
+      flex: 1;
+      text-align: center;
+      font-size: 17px;
+      font-weight: 600;
+    }
+
+    .ev-list { margin-top: 14px; }
+    .ev-empty { font-size: 15px; color: #9aa3ad; }
+    .ev-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 0;
+      border-top: 1px solid #262c33;
+    }
+    .ev-dot { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; }
+    .ev-dot.birthday { background: #ff8fc7; }
+    .ev-dot.appointment { background: #7bd88f; }
+    .ev-text { flex: 1; min-width: 0; }
+    .ev-when { font-size: 14px; color: #9aa3ad; }
+    .ev-title { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ev-del {
+      width: 44px;
+      flex: 0 0 auto;
+      margin-top: 0;
+      background: transparent;
+      border: 1px solid #333a42;
+      color: #ff8b8b;
+      font-size: 20px;
+      padding: 8px 0;
+    }
   </style>
 </head>
 <body>
@@ -58,12 +162,57 @@
   <div class="card">
     <h2>Wetter &amp; Feiertage</h2>
     <div id="current" class="current">Wird geladen …</div>
-    <label for="name">Ort</label>
-    <input id="name" type="text" autocapitalize="words" autocomplete="off" placeholder="z. B. Nufringen">
-    <label for="state">Bundesland</label>
-    <select id="state"></select>
-    <button id="save" type="button">Speichern</button>
+    <label for="query">Ort oder Postleitzahl suchen</label>
+    <input id="query" type="search" enterkeyhint="search" autocapitalize="words" autocomplete="off" placeholder="z. B. Nufringen oder 71154">
+    <button id="search" type="button">Suchen</button>
+    <div id="results" class="results"></div>
     <div id="msg" class="msg"></div>
+    <p class="hint">Das Bundesland — und damit die Feiertage — ergibt sich aus dem gewählten Ort.</p>
+  </div>
+
+  <div class="card">
+    <h2>Ereignisse</h2>
+    <p class="hint lead">Geburtstage wiederholen sich jedes Jahr, Termine gelten einmalig.</p>
+
+    <div class="seg">
+      <button id="typeBirthday" class="seg-btn active" type="button">Geburtstag</button>
+      <button id="typeAppointment" class="seg-btn" type="button">Termin</button>
+    </div>
+
+    <label for="evTitle">Bezeichnung</label>
+    <input id="evTitle" type="text" autocapitalize="words" autocomplete="off" placeholder="z. B. Oma Anna">
+
+    <label id="evDateLabel" for="evDate">Datum</label>
+    <input id="evDate" type="date">
+
+    <div id="birthdayOnly">
+      <label class="check" for="evNoYear"><input id="evNoYear" type="checkbox">Jahrgang unbekannt — kein Alter anzeigen</label>
+    </div>
+
+    <div id="appointmentOnly" hidden>
+      <label for="evDateEnd">Ende (nur bei mehrtägigen Terminen)</label>
+      <input id="evDateEnd" type="date">
+      <div class="row2">
+        <div>
+          <label for="evTime">Uhrzeit von</label>
+          <input id="evTime" type="time">
+        </div>
+        <div>
+          <label for="evTimeEnd">bis</label>
+          <input id="evTimeEnd" type="time">
+        </div>
+      </div>
+    </div>
+
+    <button id="evAdd" type="button">Hinzufügen</button>
+    <div id="evMsg" class="msg"></div>
+
+    <div class="month-nav">
+      <button id="evPrev" class="month-btn" type="button" aria-label="Vorheriger Monat">‹</button>
+      <div id="evMonth" class="month-label">—</div>
+      <button id="evNext" class="month-btn" type="button" aria-label="Nächster Monat">›</button>
+    </div>
+    <div id="evList" class="ev-list"></div>
   </div>
 
   <script>
@@ -76,30 +225,68 @@
     };
 
     const els = {
-      name: document.getElementById("name"),
-      state: document.getElementById("state"),
-      save: document.getElementById("save"),
+      query: document.getElementById("query"),
+      search: document.getElementById("search"),
+      results: document.getElementById("results"),
       msg: document.getElementById("msg"),
       current: document.getElementById("current"),
     };
-
-    for (const [code, label] of Object.entries(STATES)) {
-      const opt = document.createElement("option");
-      opt.value = code;
-      opt.textContent = label;
-      els.state.appendChild(opt);
-    }
 
     function setMsg(text, cls) {
       els.msg.textContent = text;
       els.msg.className = "msg" + (cls ? " " + cls : "");
     }
 
+    // The server answers errors as JSON, but a proxy hiccup can return HTML.
+    async function readJson(res) {
+      try {
+        return await res.json();
+      } catch (e) {
+        return {};
+      }
+    }
+
     function renderCurrent(location) {
-      const display = location.resolved_display_name || `${location.name}, ${STATES[location.state] || location.state}`;
-      els.current.textContent = `Aktuell: ${display}`;
-      els.name.value = location.name || "";
-      els.state.value = location.state || "BW";
+      const where = location.display_name || location.resolved_display_name || location.name || "—";
+      const stateName = STATES[location.state] || location.state || "unbekannt";
+      els.current.innerHTML = "";
+      const line1 = document.createElement("div");
+      line1.innerHTML = "Aktuell: <strong></strong>";
+      line1.querySelector("strong").textContent = where;
+      const line2 = document.createElement("div");
+      line2.textContent = `Feiertage: ${stateName}`;
+      els.current.appendChild(line1);
+      els.current.appendChild(line2);
+    }
+
+    function renderResults(hits) {
+      els.results.innerHTML = "";
+      if (!hits.length) {
+        els.results.classList.remove("show");
+        setMsg("Kein Ort gefunden. Anderen Namen versuchen.", "err");
+        return;
+      }
+      hits.forEach((hit) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "hit";
+        const name = document.createElement("div");
+        name.className = "hit-name";
+        name.textContent = hit.name;
+        const where = document.createElement("div");
+        where.className = "hit-where";
+        // The Regierungsbezirk tells two same-named villages apart badly;
+        // postcode, Landkreis and Gemeinde do it well.
+        const municipality = hit.municipality && hit.municipality !== hit.name ? hit.municipality : "";
+        where.textContent = [hit.postcode, hit.district, municipality, hit.admin1]
+          .filter(Boolean).join(" · ") || "Deutschland";
+        btn.appendChild(name);
+        btn.appendChild(where);
+        btn.addEventListener("click", () => choose(hit, btn));
+        els.results.appendChild(btn);
+      });
+      els.results.classList.add("show");
+      setMsg(`${hits.length} Treffer — bitte auswählen.`);
     }
 
     async function load() {
@@ -114,34 +301,282 @@
       }
     }
 
-    async function save() {
-      const name = els.name.value.trim();
-      if (!name) {
+    async function search() {
+      const query = els.query.value.trim();
+      if (!query) {
         setMsg("Bitte einen Ort eingeben.", "err");
         return;
       }
-      els.save.disabled = true;
-      setMsg("Ort wird geprüft …");
+      els.search.disabled = true;
+      els.results.classList.remove("show");
+      setMsg("Wird gesucht …");
+      try {
+        const res = await fetch(`/api/geocode/search?name=${encodeURIComponent(query)}`, { cache: "no-store" });
+        const data = await readJson(res);
+        if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+        renderResults(data.results || []);
+      } catch (e) {
+        setMsg(String(e.message || e), "err");
+      } finally {
+        els.search.disabled = false;
+      }
+    }
+
+    async function choose(hit, btn) {
+      btn.disabled = true;
+      setMsg("Wird gespeichert …");
       try {
         const res = await fetch("/api/config", {
           method: "POST",
           cache: "no-store",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ location: { name, state: els.state.value } }),
+          body: JSON.stringify({ location: hit }),
         });
-        const data = await res.json();
+        const data = await readJson(res);
         if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
         renderCurrent(data.settings.location);
+        els.results.classList.remove("show");
+        els.query.value = "";
         setMsg("Gespeichert. Das Gerät übernimmt den Ort innerhalb einer Minute.", "ok");
       } catch (e) {
         setMsg(String(e.message || e), "err");
       } finally {
-        els.save.disabled = false;
+        btn.disabled = false;
       }
     }
 
-    els.save.addEventListener("click", save);
+    // ---- Ereignisse ----
+
+    const ev = {
+      typeBirthday: document.getElementById("typeBirthday"),
+      typeAppointment: document.getElementById("typeAppointment"),
+      birthdayOnly: document.getElementById("birthdayOnly"),
+      appointmentOnly: document.getElementById("appointmentOnly"),
+      title: document.getElementById("evTitle"),
+      dateLabel: document.getElementById("evDateLabel"),
+      date: document.getElementById("evDate"),
+      dateEnd: document.getElementById("evDateEnd"),
+      noYear: document.getElementById("evNoYear"),
+      time: document.getElementById("evTime"),
+      timeEnd: document.getElementById("evTimeEnd"),
+      add: document.getElementById("evAdd"),
+      msg: document.getElementById("evMsg"),
+      list: document.getElementById("evList"),
+      month: document.getElementById("evMonth"),
+      prev: document.getElementById("evPrev"),
+      next: document.getElementById("evNext"),
+    };
+
+    let eventType = "birthday";
+    let allEvents = [];
+    const shown = new Date();
+    let shownYear = shown.getFullYear();
+    let shownMonth = shown.getMonth() + 1;
+
+    const MONTHS = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli",
+      "August", "September", "Oktober", "November", "Dezember"];
+
+    // Geburtstage wiederholen sich jaehrlich, zaehlen also in jedem Jahr.
+    // Ein Termin gehoert in den Monat, wenn sein Zeitraum ihn beruehrt.
+    function inShownMonth(event) {
+      if (event.type === "birthday") return event.month === shownMonth;
+      const first = new Date(shownYear, shownMonth - 1, 1);
+      const last = new Date(shownYear, shownMonth, 0);
+      const start = new Date(event.year, event.month - 1, event.day);
+      const end = event.end_day
+        ? new Date(event.end_year, event.end_month - 1, event.end_day)
+        : start;
+      return start <= last && end >= first;
+    }
+
+    function shiftMonth(delta) {
+      const d = new Date(shownYear, shownMonth - 1 + delta, 1);
+      shownYear = d.getFullYear();
+      shownMonth = d.getMonth() + 1;
+      renderEvents();
+    }
+
+    function setEvMsg(text, cls) {
+      ev.msg.textContent = text;
+      ev.msg.className = "msg" + (cls ? " " + cls : "");
+    }
+
+    function setEventType(type) {
+      eventType = type;
+      ev.typeBirthday.classList.toggle("active", type === "birthday");
+      ev.typeAppointment.classList.toggle("active", type === "appointment");
+      ev.birthdayOnly.hidden = type !== "birthday";
+      ev.appointmentOnly.hidden = type !== "appointment";
+      ev.title.placeholder = type === "birthday" ? "z. B. Oma Anna" : "z. B. Zahnarzt";
+      ev.dateLabel.textContent = type === "birthday" ? "Datum" : "Beginn";
+    }
+
+    function pad2(value) {
+      return String(value).padStart(2, "0");
+    }
+
+    function describe(event) {
+      const day = `${pad2(event.day)}.${pad2(event.month)}.`;
+      if (event.type === "birthday") {
+        return event.year ? `${day} · Jahrgang ${event.year}` : `${day} · jährlich`;
+      }
+      let text = `${day}${event.year}`;
+      if (event.end_day) {
+        text += ` – ${pad2(event.end_day)}.${pad2(event.end_month)}.${event.end_year}`;
+      }
+      const times = [event.time, event.time_end].filter(Boolean).join("–");
+      return times ? `${text} · ${times}` : text;
+    }
+
+    function renderEvents(events) {
+      if (Array.isArray(events)) allEvents = events;
+      ev.month.textContent = `${MONTHS[shownMonth - 1]} ${shownYear}`;
+      ev.list.innerHTML = "";
+      const visible = allEvents.filter(inShownMonth);
+      if (!visible.length) {
+        const empty = document.createElement("div");
+        empty.className = "ev-empty";
+        empty.textContent = allEvents.length
+          ? "In diesem Monat nichts eingetragen."
+          : "Noch keine Ereignisse angelegt.";
+        ev.list.appendChild(empty);
+        return;
+      }
+      visible.forEach((event) => {
+        const row = document.createElement("div");
+        row.className = "ev-row";
+
+        const dot = document.createElement("span");
+        dot.className = `ev-dot ${event.type}`;
+
+        const text = document.createElement("div");
+        text.className = "ev-text";
+        const title = document.createElement("div");
+        title.className = "ev-title";
+        title.textContent = event.title;
+        const when = document.createElement("div");
+        when.className = "ev-when";
+        when.textContent = describe(event);
+        text.appendChild(title);
+        text.appendChild(when);
+
+        const del = document.createElement("button");
+        del.type = "button";
+        del.className = "ev-del";
+        del.textContent = "×";
+        del.setAttribute("aria-label", `${event.title} löschen`);
+        del.addEventListener("click", () => removeEvent(event, del));
+
+        row.appendChild(dot);
+        row.appendChild(text);
+        row.appendChild(del);
+        ev.list.appendChild(row);
+      });
+    }
+
+    async function loadEvents() {
+      try {
+        const res = await fetch("/api/events", { cache: "no-store" });
+        const data = await readJson(res);
+        if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+        renderEvents(data.events || []);
+      } catch (e) {
+        setEvMsg(String(e.message || e), "err");
+      }
+    }
+
+    async function addEvent() {
+      const title = ev.title.value.trim();
+      if (!title) {
+        setEvMsg("Bitte eine Bezeichnung eingeben.", "err");
+        return;
+      }
+      if (!ev.date.value) {
+        setEvMsg("Bitte ein Datum wählen.", "err");
+        return;
+      }
+      const [year, month, day] = ev.date.value.split("-").map(Number);
+      const payload = {
+        type: eventType,
+        title,
+        month,
+        day,
+        year: eventType === "birthday" && ev.noYear.checked ? null : year,
+      };
+      if (eventType === "appointment") {
+        if (ev.dateEnd.value) {
+          const [endYear, endMonth, endDay] = ev.dateEnd.value.split("-").map(Number);
+          payload.end_year = endYear;
+          payload.end_month = endMonth;
+          payload.end_day = endDay;
+        }
+        payload.time = ev.time.value || null;
+        payload.time_end = ev.timeEnd.value || null;
+      }
+
+      ev.add.disabled = true;
+      setEvMsg("Wird gespeichert …");
+      try {
+        const res = await fetch("/api/events", {
+          method: "POST",
+          cache: "no-store",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await readJson(res);
+        if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+        // Zum Monat des neuen Eintrags springen, sonst sieht man ihn nicht.
+        shownMonth = month;
+        if (eventType === "appointment") shownYear = year;
+        renderEvents(data.events || []);
+        ev.title.value = "";
+        ev.dateEnd.value = "";
+        ev.time.value = "";
+        ev.timeEnd.value = "";
+        ev.noYear.checked = false;
+        setEvMsg("Gespeichert. Das Gerät übernimmt es innerhalb einer Minute.", "ok");
+      } catch (e) {
+        setEvMsg(String(e.message || e), "err");
+      } finally {
+        ev.add.disabled = false;
+      }
+    }
+
+    async function removeEvent(event, button) {
+      if (!window.confirm(`„${event.title}" löschen?`)) return;
+      button.disabled = true;
+      setEvMsg("Wird gelöscht …");
+      try {
+        const res = await fetch(`/api/events/${encodeURIComponent(event.id)}`, {
+          method: "DELETE",
+          cache: "no-store",
+        });
+        const data = await readJson(res);
+        if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+        renderEvents(data.events || []);
+        setEvMsg("Gelöscht.", "ok");
+      } catch (e) {
+        setEvMsg(String(e.message || e), "err");
+        button.disabled = false;
+      }
+    }
+
+    ev.typeBirthday.addEventListener("click", () => setEventType("birthday"));
+    ev.typeAppointment.addEventListener("click", () => setEventType("appointment"));
+    ev.add.addEventListener("click", addEvent);
+    ev.prev.addEventListener("click", () => shiftMonth(-1));
+    ev.next.addEventListener("click", () => shiftMonth(1));
+
+    els.search.addEventListener("click", search);
+    els.query.addEventListener("keydown", (keyEvent) => {
+      if (keyEvent.key === "Enter") {
+        keyEvent.preventDefault();
+        search();
+      }
+    });
+    setEventType("birthday");
     load();
+    loadEvents();
   </script>
 </body>
 </html>

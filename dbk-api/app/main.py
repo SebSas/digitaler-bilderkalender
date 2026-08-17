@@ -760,40 +760,102 @@ def _weather_code_to_text_icon(code: int) -> Tuple[str, str]:
     return "Unbekannt", "unknown"
 
 
-def _fetch_geocode(name: str, state: str) -> Dict[str, object]:
-    params = {
-        "name": name,
-        "count": 5,
-        "language": "de",
-        "format": "json",
-        "country": "DE",
+STATE_CODES = {name.lower(): code for code, name in STATE_NAMES.items()}
+
+
+POSTCODE_RE = re.compile(r"^\d{5}$")
+
+
+def _candidate(item: Dict[str, object]) -> Dict[str, object]:
+    """admin2 is the Regierungsbezirk and does not tell two same-named villages
+    apart; admin3 (Landkreis) and admin4 (Gemeinde) do."""
+    district = str(item.get("admin3") or item.get("admin2") or "")
+    municipality = str(item.get("admin4") or "")
+    parts = [item.get("name"), item.get("admin1"), district]
+    return {
+        "name": item.get("name"),
+        "admin1": item.get("admin1"),
+        "district": district,
+        "municipality": municipality,
+        "postcode": "",
+        "lat": float(item["latitude"]),
+        "lon": float(item["longitude"]),
+        "timezone": item.get("timezone") or "Europe/Berlin",
+        "display_name": ", ".join([str(p) for p in parts if p]),
     }
+
+
+def _postcode_candidates(postcode: str) -> List[Dict[str, object]]:
+    """Open-Meteo carries no postcodes for German places, so a five-digit query
+    goes to a postcode directory instead."""
+    try:
+        data = _fetch_json_url(f"https://api.zippopotam.us/de/{postcode}")
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return []
+        raise
+    out: List[Dict[str, object]] = []
+    for place in data.get("places") or []:
+        name = str(place.get("place name") or "")
+        state_name = str(place.get("state") or "")
+        out.append({
+            "name": name,
+            "admin1": state_name,
+            "district": "",
+            "municipality": "",
+            "postcode": str(data.get("post code") or postcode),
+            "lat": float(place["latitude"]),
+            "lon": float(place["longitude"]),
+            "timezone": "Europe/Berlin",
+            "display_name": ", ".join([p for p in [f"{postcode} {name}".strip(), state_name] if p]),
+        })
+    return out
+
+
+def _geocode_candidates(name: str, state: str = "", limit: int = 8) -> List[Dict[str, object]]:
+    """Open-Meteo ignores a country filter and ranks Austrian hits first for some
+    names, so fetch a wide list and filter here."""
+    params = {"name": name, "count": 40, "language": "de", "format": "json"}
     url = "https://geocoding-api.open-meteo.com/v1/search?" + urllib.parse.urlencode(params)
     data = _fetch_json_url(url)
-    results = data.get("results") or []
-    if not isinstance(results, list) or not results:
-        raise ValueError("location not found")
+    results = [r for r in (data.get("results") or []) if r.get("country_code") == "DE"]
 
-    state_name = STATE_NAMES.get(state.upper())
-    chosen = results[0]
-    if state_name:
-        for item in results:
-            if str(item.get("admin1", "")).lower() == state_name.lower():
-                chosen = item
-                break
+    state_name = STATE_NAMES.get(state.upper()) if state else None
+    wanted = _normalize_key(name)
 
-    display_parts = [chosen.get("name"), chosen.get("admin1"), chosen.get("country")]
-    display_name = ", ".join([p for p in display_parts if p])
+    def rank(item: Dict[str, object]) -> Tuple[int, int, int]:
+        in_state = 0 if state_name and str(item.get("admin1", "")).lower() == state_name.lower() else 1
+        exact = 0 if _normalize_key(str(item.get("name", ""))) == wanted else 1
+        return (in_state, exact, -int(item.get("population") or 0))
 
+    results.sort(key=rank)
+    return [_candidate(r) for r in results[:limit]]
+
+
+def _geocode_search(name: str, state: str = "") -> List[Dict[str, object]]:
+    """Two attempts: the device's Wi-Fi drops the TLS handshake now and then."""
+    query = name.strip()
+    by_postcode = POSTCODE_RE.match(query) is not None
+    last: Optional[Exception] = None
+    for _ in range(2):
+        try:
+            return _postcode_candidates(query) if by_postcode else _geocode_candidates(query, state)
+        except Exception as exc:
+            last = exc
+    raise HTTPException(status_code=503, detail=f"Ortssuche fehlgeschlagen: {last}")
+
+
+def _geo_record(location: Dict[str, object]) -> Dict[str, object]:
+    """Turn a stored location into the cache format the weather fetch expects."""
     return {
         "status": "ok",
         "country": "DE",
-        "state": state.upper(),
-        "name": name,
-        "lat": float(chosen["latitude"]),
-        "lon": float(chosen["longitude"]),
-        "timezone": chosen.get("timezone") or "Europe/Berlin",
-        "resolved_display_name": display_name,
+        "state": location["state"],
+        "name": location["name"],
+        "lat": location["lat"],
+        "lon": location["lon"],
+        "timezone": location.get("timezone") or "Europe/Berlin",
+        "resolved_display_name": location.get("display_name") or location["name"],
         "updated_at": _now_iso(),
     }
 
@@ -1139,44 +1201,6 @@ def image_thumb(image_id: str):
     return FileResponse(dst)
 
 
-@app.get("/api/geocode")
-def geocode(name: str, state: str, mode: str = "refresh") -> JSONResponse:
-    state_norm = _normalize_key(state)
-    name_norm = _normalize_key(name)
-    cache_path = _geocode_cache_path(state_norm, name_norm)
-    cached = _read_json(cache_path)
-
-    if mode == "cache":
-        if cached:
-            return JSONResponse(cached)
-        data = {
-            "status": "error",
-            "country": "DE",
-            "state": state.upper(),
-            "name": name,
-            "error": "cache missing",
-            "updated_at": _now_iso(),
-        }
-        return JSONResponse(data)
-
-    if cached:
-        return JSONResponse(cached)
-
-    try:
-        data = _fetch_geocode(name, state)
-    except Exception as e:
-        data = {
-            "status": "error",
-            "country": "DE",
-            "state": state.upper(),
-            "name": name,
-            "error": str(e),
-            "updated_at": _now_iso(),
-        }
-    _write_json(cache_path, data)
-    return JSONResponse(data)
-
-
 @app.get("/api/weather")
 def weather(name: str, state: str, mode: str = "refresh") -> JSONResponse:
     state_norm = _normalize_key(state)
@@ -1409,7 +1433,18 @@ CONFIG_DIR = Path(os.environ.get("DBK_CONFIG_DIR", "/config"))
 SETTINGS_PATH = CONFIG_DIR / "settings.json"
 DEFAULT_SETTINGS: Dict[str, object] = {
     "version": 1,
-    "location": {"name": "Nufringen", "state": "BW"},
+    "location": {
+        "name": "Nufringen",
+        "state": "BW",
+        "lat": 48.62253,
+        "lon": 8.89009,
+        "timezone": "Europe/Berlin",
+        "admin1": "Baden-Württemberg",
+        "district": "Landkreis Böblingen",
+        "municipality": "Nufringen",
+        "postcode": "",
+        "display_name": "Nufringen, Baden-Württemberg, Landkreis Böblingen",
+    },
 }
 
 
@@ -1432,22 +1467,24 @@ def _save_settings(data: Dict[str, object]) -> None:
     tmp.replace(SETTINGS_PATH)
 
 
-def _geocode_checked(name: str, state: str) -> Dict[str, object]:
-    """Two attempts: the device's Wi-Fi drops the TLS handshake now and then."""
-    last: Optional[Exception] = None
-    for _ in range(2):
-        try:
-            return _fetch_geocode(name, state)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail="Ort nicht gefunden")
-        except Exception as exc:
-            last = exc
-    raise HTTPException(status_code=503, detail=f"Ortspruefung fehlgeschlagen: {last}")
-
-
 @app.get("/api/config")
 def get_config() -> JSONResponse:
-    return JSONResponse({"status": "ok", "settings": _load_settings()})
+    settings = _load_settings()
+    location = settings.get("location") or {}
+    # Self-heal: a wiped cache volume would otherwise leave the weather without coordinates.
+    if location.get("lat") is not None:
+        cache_path = _geocode_cache_path(_normalize_key(location["state"]), _normalize_key(location["name"]))
+        if not cache_path.exists():
+            _write_json(cache_path, _geo_record(location))
+    return JSONResponse({"status": "ok", "settings": settings})
+
+
+@app.get("/api/geocode/search")
+def geocode_search(name: str, state: str = "") -> JSONResponse:
+    query = name.strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="Ort fehlt")
+    return JSONResponse({"status": "ok", "results": _geocode_search(query, state)})
 
 
 @app.post("/api/config")
@@ -1456,21 +1493,185 @@ def set_config(patch: Dict[str, object] = Body(...)) -> JSONResponse:
     location = patch.get("location")
     if isinstance(location, dict):
         name = str(location.get("name") or "").strip()
-        state = str(location.get("state") or "").strip().upper()
         if not name:
             raise HTTPException(status_code=400, detail="Ort fehlt")
-        if state not in STATE_NAMES:
-            raise HTTPException(status_code=400, detail="Bundesland unbekannt")
-        geo = _geocode_checked(name, state)
-        _write_json(_geocode_cache_path(_normalize_key(state), _normalize_key(name)), geo)
-        settings["location"] = {
+        try:
+            lat = float(location["lat"])
+            lon = float(location["lon"])
+        except (KeyError, TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Ort ohne Koordinaten - bitte aus der Trefferliste waehlen")
+
+        admin1 = str(location.get("admin1") or "").strip()
+        state = STATE_CODES.get(admin1.lower())
+        if not state:
+            raise HTTPException(status_code=400, detail=f"Bundesland nicht erkennbar: {admin1 or 'fehlt'}")
+
+        chosen = {
             "name": name,
             "state": state,
-            "resolved_display_name": geo.get("resolved_display_name"),
+            "lat": lat,
+            "lon": lon,
+            "timezone": str(location.get("timezone") or "Europe/Berlin"),
+            "admin1": admin1,
+            "district": str(location.get("district") or ""),
+            "municipality": str(location.get("municipality") or ""),
+            "postcode": str(location.get("postcode") or ""),
+            "display_name": str(location.get("display_name") or name),
         }
+        _write_json(_geocode_cache_path(_normalize_key(state), _normalize_key(name)), _geo_record(chosen))
+        settings["location"] = chosen
     settings["updated_at"] = _now_iso()
     _save_settings(settings)
     return JSONResponse({"status": "ok", "settings": settings})
+
+
+# Family events. Birthdays repeat every year, appointments happen once, so both
+# are stored as month/day plus an optional year rather than as an ISO date.
+EVENTS_PATH = CONFIG_DIR / "events.json"
+EVENT_TYPES = ("birthday", "appointment")
+MAX_EVENTS = 200
+
+
+def _load_events() -> List[Dict[str, object]]:
+    stored = _read_json(EVENTS_PATH)
+    events = stored.get("events") if isinstance(stored, dict) else None
+    if not isinstance(events, list):
+        return []
+    return [e for e in events if isinstance(e, dict)]
+
+
+def _save_events(events: List[Dict[str, object]]) -> None:
+    _ensure_dir(CONFIG_DIR)
+    payload = {"version": 1, "updated_at": _now_iso(), "events": events}
+    tmp = EVENTS_PATH.with_name(EVENTS_PATH.name + ".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(EVENTS_PATH)
+
+
+def _sort_events(events: List[Dict[str, object]]) -> List[Dict[str, object]]:
+    """Calendar order. Defensive against a hand-edited events.json."""
+    def key(event: Dict[str, object]) -> Tuple[int, int, int, str]:
+        try:
+            month = int(event.get("month") or 0)
+            day = int(event.get("day") or 0)
+        except (TypeError, ValueError):
+            month, day = 0, 0
+        year = event.get("year")
+        return (month, day, int(year) if isinstance(year, int) else 0, str(event.get("title") or "").lower())
+
+    return sorted(events, key=key)
+
+
+def _clean_time(value: object, label: str) -> Optional[str]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", text):
+        raise HTTPException(status_code=400, detail=f"{label} muss HH:MM sein")
+    return text
+
+
+def _clean_event(raw: Dict[str, object]) -> Dict[str, object]:
+    kind = str(raw.get("type") or "").strip()
+    if kind not in EVENT_TYPES:
+        raise HTTPException(status_code=400, detail="Unbekannter Ereignis-Typ")
+
+    title = str(raw.get("title") or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Bezeichnung fehlt")
+    title = title[:60]
+
+    try:
+        month = int(raw.get("month"))
+        day = int(raw.get("day"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Datum fehlt")
+
+    year: Optional[int] = None
+    raw_year = raw.get("year")
+    if raw_year not in (None, ""):
+        try:
+            year = int(raw_year)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Jahr ist keine Zahl")
+        if not 1900 <= year <= 2200:
+            raise HTTPException(status_code=400, detail="Jahr liegt ausserhalb 1900-2200")
+    if kind == "appointment" and year is None:
+        raise HTTPException(status_code=400, detail="Ein Termin braucht ein Jahr")
+
+    # A leap year as the fallback keeps 29 February valid for birthdays.
+    try:
+        start = datetime(year or 2024, month, day)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Datum ungueltig")
+
+    # Only appointments span a range and carry times; a birthday is a single day.
+    end_year = end_month = end_day = None
+    time_value = time_end = None
+
+    if kind == "appointment":
+        if raw.get("end_day") not in (None, ""):
+            try:
+                end_year = int(raw.get("end_year"))
+                end_month = int(raw.get("end_month"))
+                end_day = int(raw.get("end_day"))
+                end = datetime(end_year, end_month, end_day)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="Enddatum ungueltig")
+            if end < start:
+                raise HTTPException(status_code=400, detail="Das Ende liegt vor dem Beginn")
+            if (end - start).days > 366:
+                raise HTTPException(status_code=400, detail="Zeitraum laenger als ein Jahr")
+            if end == start:
+                # A range of one day is just a day.
+                end_year = end_month = end_day = None
+
+        time_value = _clean_time(raw.get("time"), "Uhrzeit")
+        time_end = _clean_time(raw.get("time_end"), "Endzeit")
+        if time_end and not time_value:
+            raise HTTPException(status_code=400, detail="Endzeit ohne Startzeit")
+        if time_end and time_value and end_day is None and time_end <= time_value:
+            raise HTTPException(status_code=400, detail="Die Endzeit muss nach der Startzeit liegen")
+
+    return {
+        "id": str(raw.get("id") or os.urandom(6).hex()),
+        "type": kind,
+        "title": title,
+        "year": year,
+        "month": month,
+        "day": day,
+        "end_year": end_year,
+        "end_month": end_month,
+        "end_day": end_day,
+        "time": time_value,
+        "time_end": time_end,
+    }
+
+
+@app.get("/api/events")
+def get_events() -> JSONResponse:
+    return JSONResponse({"status": "ok", "events": _sort_events(_load_events())})
+
+
+@app.post("/api/events")
+def add_event(payload: Dict[str, object] = Body(...)) -> JSONResponse:
+    events = _load_events()
+    if len(events) >= MAX_EVENTS:
+        raise HTTPException(status_code=400, detail=f"Mehr als {MAX_EVENTS} Ereignisse sind nicht vorgesehen")
+    events.append(_clean_event(payload))
+    events = _sort_events(events)
+    _save_events(events)
+    return JSONResponse({"status": "ok", "events": events})
+
+
+@app.delete("/api/events/{event_id}")
+def delete_event(event_id: str) -> JSONResponse:
+    events = _load_events()
+    remaining = [e for e in events if e.get("id") != event_id]
+    if len(remaining) == len(events):
+        raise HTTPException(status_code=404, detail="Ereignis nicht gefunden")
+    _save_events(remaining)
+    return JSONResponse({"status": "ok", "events": remaining})
 
 
 @app.get("/api/qr.svg")

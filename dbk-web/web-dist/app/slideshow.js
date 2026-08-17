@@ -8,7 +8,6 @@ import { setLastError, state } from "./state.js";
 let swapId = 0;
 const fadeMs = 900;
 const manualFadeMs = 250; // swipe navigation: fast fade for perceptible response
-let landscapeSwapCounter = 0;
 
 // --- Queue scheduling (see vault note konzept-bild-queues) ------------------
 // Dwell is uniform for all images; queues only control how often they supply
@@ -71,32 +70,9 @@ function pickFromQueues(commit) {
   return img;
 }
 
-// --- Ken Burns via JS stepping (see commit 1ab19b3) --------------------------
-// The zoom is so slow (4% over 22s) that ~8fps is visually identical to a
-// 60fps CSS animation, but lets the compositor idle between steps.
-const kenburnsMs = 22000;
-const kenburnsFps = 8;
-let kenburnsTimer = null;
-
-function stopKenBurns() {
-  if (kenburnsTimer) {
-    clearInterval(kenburnsTimer);
-    kenburnsTimer = null;
-  }
-}
-
-function startKenBurns(el) {
-  stopKenBurns();
-  const start = performance.now();
-  kenburnsTimer = setInterval(() => {
-    const t = Math.min(1, (performance.now() - start) / kenburnsMs);
-    const e = t < 0.5 ? 2 * t * t : 1 - ((-2 * t + 2) ** 2) / 2; // ease-in-out
-    el.style.transform =
-      `scale(${(1.02 + 0.04 * e).toFixed(4)}) ` +
-      `translate3d(${(-1.0 * e).toFixed(3)}%, ${(-0.8 * e).toFixed(3)}%, 0)`;
-    if (t >= 1) stopKenBurns();
-  }, Math.round(1000 / kenburnsFps));
-}
+// Ken Burns (4% Zoom über 22s, per JS in 8 Schritten/s) am 2026-08-16 entfernt:
+// Sebi bemerkte den Effekt im Betrieb nicht und sah keinen Mehrwert. Er kostete
+// dafür acht Neuzeichnungen pro Sekunde, dauerhaft.
 
 function waitForImage(img) {
   if (img.decode) {
@@ -152,8 +128,6 @@ export function showImage(obj, manual = false) {
   const outgoingSlot = state.showingA ? els.slotB : els.slotA;
   const thisSwap = ++swapId;
 
-  incoming.classList.remove("kenburns");
-  incoming.style.transform = "";
   incomingSlot.classList.remove("show", "portrait");
 
   incoming.src = url;
@@ -163,22 +137,13 @@ export function showImage(obj, manual = false) {
   waitForImage(incoming).then(() => {
     if (thisSwap !== swapId) return;
     const isPortrait = incoming.naturalHeight > incoming.naturalWidth;
-    const useKenBurns = !isPortrait && ((landscapeSwapCounter++ % 2) === 0);
     incomingSlot.classList.toggle("portrait", isPortrait);
-    incoming.classList.toggle("kenburns", useKenBurns);
-    if (useKenBurns) {
-      startKenBurns(incoming);
-    } else {
-      stopKenBurns();
-    }
     incomingSlot.classList.add("show");
     outgoingSlot.classList.remove("show");
     const cleanupId = thisSwap;
     setTimeout(() => {
       if (cleanupId !== swapId) return;
       outgoingSlot.classList.remove("portrait");
-      outgoing.classList.remove("kenburns");
-      outgoing.style.transform = "";
     }, effFadeMs + 50);
   });
 
