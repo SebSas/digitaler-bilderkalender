@@ -87,11 +87,11 @@
 
     .slot.portrait .img-bg { opacity: 1; }
 
-    /* subtle premium zoom (Ken Burns light) — driven by JS at low fps
-       (app/slideshow.js). A 60fps CSS animation kept the compositor busy
-       full-time (~25% total CPU on the Pi 4); the zoom is slow enough that
-       ~12fps looks identical. */
-
+    /* Schublade: Das Panel steckt immer in voller Höhe im Footer, der Footer
+       selbst ist im Ruhezustand um Panelhöhe + gap nach unten aus dem Bild
+       geschoben. Aufklappen animiert damit ausschließlich transform — kein
+       Layout, und der backdrop-filter ist bereits gerastert, statt beim Öffnen
+       erst berechnet zu werden. */
     .footer {
       position: absolute;
       left: 24px;
@@ -101,7 +101,19 @@
       flex-direction: column;
       gap: 10px;
       z-index: 12;
+      /* 580 = 560 Panel + 10 gap + 20 bottom (= vollständig versenkt). Wir
+         schieben absichtlich nur um 565 px, damit oben ein 15-px-Streifen der
+         Schublade stehen bleibt — der Griff darin zeigt, dass sich hier etwas
+         hochziehen lässt. Jeder Pixel weniger macht den Streifen breiter. */
+      transform: translateY(565px);
+      transition: transform 320ms cubic-bezier(.2, .8, .25, 1);
+      /* Kein will-change: das befoerderte die weichgezeichnete Flaeche dauerhaft
+         in eine eigene Compositing-Ebene und liess auf der vc4 beim Bildwechsel
+         Einzelbilder schwarz durchschlagen. Waehrend der Animation befoerdert
+         der Browser die Ebene ohnehin selbst. */
     }
+
+    .footer.expanded { transform: translateY(0); }
 
     .footer-collapsed {
       padding: 14px 18px;
@@ -212,24 +224,36 @@
        ein neues Layout — und darüber liegt der backdrop-filter, der dann jedes
        Mal neu gerastert wird. Das war der Grund für das zähe Aufklappen. */
     .footer-expanded {
-      height: 0;
+      height: 560px;
       overflow: hidden;
-      opacity: 0;
-      transform: translateY(10px);
       pointer-events: none;
-      transition: opacity 260ms ease, transform 260ms ease;
     }
 
-    .footer.expanded .footer-expanded {
-      height: 560px;
-      opacity: 1;
-      transform: translateY(0);
-      pointer-events: auto;
+    .footer.expanded .footer-expanded { pointer-events: auto; }
+
+    /* Griff am oberen Rand der Schublade — im eingeklappten Zustand das
+       Einzige, was man von ihr sieht. */
+    .drawer-handle {
+      position: absolute;
+      top: 6px;
+      left: 0;
+      right: 0;
+      display: flex;
+      justify-content: center;
+      gap: 5px;
+      pointer-events: none;
+    }
+
+    .drawer-handle span {
+      width: 26px;
+      height: 4px;
+      border-radius: 2px;
+      background: rgba(255,255,255,.40);
     }
 
     .footer-expanded-inner {
       position: relative;
-      padding: 16px 18px 82px 18px;
+      padding: 26px 18px 82px 18px;
       border-radius: 18px;
       background: rgba(10,16,28,.70);
       border: 1px solid rgba(255,255,255,.18);
@@ -756,6 +780,7 @@
 
       <div id="footerExpanded" class="footer-expanded" aria-hidden="true">
         <div class="footer-expanded-inner">
+          <div class="drawer-handle" aria-hidden="true"><span></span><span></span><span></span></div>
           <div class="calendar">
             <div id="calendarHeader" class="calendar-header">---</div>
             <div id="calendarGrid" class="calendar-grid"></div>

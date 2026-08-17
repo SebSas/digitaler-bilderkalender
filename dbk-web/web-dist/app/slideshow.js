@@ -170,13 +170,13 @@ export function nextImage(step, manual = false) {
 
   let img = null;
   if (step < 0) {
-    // Manual back: walk the history of actually shown images
-    if (historyPos > 0) {
-      historyPos -= 1;
-      img = shownHistory[historyPos];
-    } else {
-      return;
-    }
+    // Manual back: walk the history of actually shown images. Am Anfang
+    // angekommen, springt es ans Ende statt stehen zu bleiben — Ringpuffer.
+    // Vorwaerts braucht kein Gegenstueck: dort erzeugt der Planer bei Bedarf
+    // ein neues Bild, es gibt also keine Sackgasse.
+    if (shownHistory.length < 2) return;
+    historyPos = historyPos > 0 ? historyPos - 1 : shownHistory.length - 1;
+    img = shownHistory[historyPos];
   } else if (historyPos < shownHistory.length - 1) {
     // Manual forward after going back: replay history first
     historyPos += 1;
